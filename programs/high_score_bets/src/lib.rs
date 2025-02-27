@@ -98,6 +98,7 @@ pub struct Pot {
 }
 
 /// Submit a new score
+/// Submit a new score
 #[derive(Accounts)]
 pub struct SubmitScore<'info> {
     #[account(
@@ -112,11 +113,9 @@ pub struct SubmitScore<'info> {
     #[account(mut)]
     pub initializer: Signer<'info>,
 
-    #[account(mut)]
-    pub pot: Account<'info, Pot>,
-
     pub system_program: Program<'info, System>,
 }
+
 
 /// Reset the leaderboard
 #[derive(Accounts)]

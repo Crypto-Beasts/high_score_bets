@@ -57,7 +57,7 @@ describe("high_score_bets", () => {
     await program.methods
       .submitScore(new anchor.BN(500), actionHashArray, timestamp)
       .accounts({
-        playerScore: playerScorePDA, // ✅ Fix: Match Solana program names
+        player_score: playerScorePDA, // ✅ Fix: Match Solana program names
         initializer: player1.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
@@ -88,7 +88,7 @@ describe("high_score_bets", () => {
       await program.methods
         .submitScore(new anchor.BN(player.score), actionHashArray, timestamp) // ✅ Fix: Use correct player score
         .accounts({
-          playerScore: playerScorePDA, 
+          player_score: playerScorePDA, 
           initializer: player.keypair.publicKey, // ✅ Fix: Use correct player key
           systemProgram: anchor.web3.SystemProgram.programId,
         })
