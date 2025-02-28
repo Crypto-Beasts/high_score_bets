@@ -93,6 +93,8 @@ describe("high_score_bets", () => {
     const actionHashArray = Array.from(actionHash);
     const timestamp = new anchor.BN(Date.now() / 1000);
 
+    console.log(actionHash);
+    
     await program.methods
       .submitScore(new anchor.BN(500), actionHashArray, timestamp)
       .accounts({

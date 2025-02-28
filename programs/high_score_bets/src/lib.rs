@@ -18,13 +18,14 @@ pub mod high_score_bets {
     
     pub fn initialize_leaderboard(ctx: Context<InitializeLeaderboard>) -> Result<()> {
         let leaderboard = &mut ctx.accounts.leaderboard;
-        leaderboard.top_player_keys = Vec::new();
+        leaderboard.top_players = Vec::new();
         leaderboard.last_reset = Clock::get()?.unix_timestamp;
         Ok(())
     }
 
-    pub fn submit_score(ctx: Context<SubmitScore>, final_score: u64, action_hash: [u8; 32], timestamp: i64) -> Result<()> {
+    pub fn submit_score(ctx: Context<SubmitScore>, final_score: u64, surname: String, action_hash: [u8; 32], timestamp: i64) -> Result<()> {
         let player_score = &mut ctx.accounts.player_score;
+        let leaderboard = &mut ctx.accounts.leaderboard;
     
         // Save the best score
         if final_score > player_score.best_score {
@@ -33,16 +34,31 @@ pub mod high_score_bets {
     
         // Save action hash for replay verification
         player_score.last_action_hash = action_hash;
-        player_score.last_timestamp = timestamp; 
+        player_score.last_timestamp = timestamp;
     
-        msg!("Score submitted: {} for player {}", final_score, ctx.accounts.initializer.key());
+        // Find existing player in the leaderboard
+        if let Some(entry) = leaderboard.top_players.iter_mut().find(|p| p.player_key == ctx.accounts.initializer.key()) {
+            entry.score = final_score; // Update score
+        } else {
+            // Add new player entry
+            leaderboard.top_players.push(PlayerEntry {
+                player_key: ctx.accounts.initializer.key(),
+                surname: surname.clone(),
+                score: final_score,
+            });
+        }
+    
+        // Sort leaderboard by score (highest first)
+        leaderboard.top_players.sort_by(|a, b| b.score.cmp(&a.score));
+    
+        msg!("Score submitted: {} for player {}", final_score, surname);
     
         Ok(())
     }
     
     pub fn reset_weekly_leaderboard(ctx: Context<ResetLeaderboard>) -> Result<()> {
         let leaderboard = &mut ctx.accounts.leaderboard;
-        leaderboard.top_player_keys.clear(); 
+        leaderboard.top_players.clear(); 
         leaderboard.last_reset = Clock::get()?.unix_timestamp;
         Ok(())
     }
@@ -54,7 +70,7 @@ pub mod high_score_bets {
         let clock = Clock::get()?;
     
         // Send SOL to top 3 players
-        for (index, player_key) in leaderboard.top_player_keys.iter().enumerate() {
+        for (index, player_entry) in leaderboard.top_players.iter().enumerate() {
             let reward_amount = match index {
                 0 => pot.total_amount * 50 / 100, // 50% to 1st place
                 1 => pot.total_amount * 30 / 100, // 30% to 2nd place
@@ -67,7 +83,7 @@ pub mod high_score_bets {
                 invoke(
                     &system_instruction::transfer(
                         &pot.to_account_info().key(),  // Sender (pot)
-                        &player_key.key(),             // Receiver (player)
+                        &player_entry.player_key.key(),             // Receiver (player)
                         reward_amount,                 // Amount in lamports
                     ),
                     &[
@@ -79,7 +95,7 @@ pub mod high_score_bets {
         }
         
         // Reset leaderboard after rewards are distributed
-        leaderboard.top_player_keys.clear();
+        leaderboard.top_players.clear();
         leaderboard.last_reset = clock.unix_timestamp;
         
         pot.total_amount = 0; // Reset the pot
@@ -91,10 +107,16 @@ pub mod high_score_bets {
 /// Leaderboard storing the best scores
 #[account]
 pub struct Leaderboard {
-    pub top_player_keys: Vec<Pubkey>, // Only stores player public keys, not full data
+    pub top_players: Vec<PlayerEntry>, // Stores ranked players
     pub last_reset: i64,
-    // We should add a Surname, the leaderboard should not show the pub keys, we should store them, but not show them.
-    // We need to add the Scores of the players, new branch
+}
+
+/// Individual entry for a player's leaderboard record
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+pub struct PlayerEntry {
+    pub player_key: Pubkey, 
+    pub surname: String, 
+    pub score: u64, 
 }
 
 /// Player's Score Account
@@ -148,13 +170,18 @@ pub struct InitializeLeaderboard<'info> {
 #[derive(Accounts)]
 pub struct SubmitScore<'info> {
     #[account(
-        init_if_needed,
-        payer = initializer,
-        space = 8 + 64,
+        mut,
         seeds = [b"player_score", initializer.key().as_ref()],
-        bump
+        bump,
     )]
     pub player_score: Account<'info, PlayerScore>,
+
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump,
+    )]
+    pub leaderboard: Account<'info, Leaderboard>,
 
     #[account(mut)]
     pub initializer: Signer<'info>,
