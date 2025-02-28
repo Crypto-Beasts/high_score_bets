@@ -9,6 +9,20 @@ declare_id!("2r9LfxQ588QkQUgSfqojY5k2pJptHdhys3y7nC92hwUP");
 pub mod high_score_bets {
     use super::*;
 
+    pub fn initialize_pot(ctx: Context<InitializePot>) -> Result<()> {
+        let pot = &mut ctx.accounts.pot;
+        pot.total_amount = 0; // Initialize the pot with 0 SOL
+        msg!("Pot initialized.");
+        Ok(())
+    }
+    
+    pub fn initialize_leaderboard(ctx: Context<InitializeLeaderboard>) -> Result<()> {
+        let leaderboard = &mut ctx.accounts.leaderboard;
+        leaderboard.top_player_keys = Vec::new();
+        leaderboard.last_reset = Clock::get()?.unix_timestamp;
+        Ok(())
+    }
+
     pub fn submit_score(ctx: Context<SubmitScore>, final_score: u64, action_hash: [u8; 32], timestamp: i64) -> Result<()> {
         let player_score = &mut ctx.accounts.player_score;
     
@@ -26,8 +40,6 @@ pub mod high_score_bets {
         Ok(())
     }
     
-    
-
     pub fn reset_weekly_leaderboard(ctx: Context<ResetLeaderboard>) -> Result<()> {
         let leaderboard = &mut ctx.accounts.leaderboard;
         leaderboard.top_player_keys.clear(); 
@@ -40,10 +52,6 @@ pub mod high_score_bets {
         let leaderboard = &mut ctx.accounts.leaderboard;
         let pot = &mut ctx.accounts.pot;
         let clock = Clock::get()?;
-    
-        // Reset leaderboard after rewards are distributed
-        leaderboard.top_player_keys.clear();
-        leaderboard.last_reset = clock.unix_timestamp;
     
         // Send SOL to top 3 players
         for (index, player_key) in leaderboard.top_player_keys.iter().enumerate() {
@@ -69,7 +77,11 @@ pub mod high_score_bets {
                 )?;
             }
         }
-    
+        
+        // Reset leaderboard after rewards are distributed
+        leaderboard.top_player_keys.clear();
+        leaderboard.last_reset = clock.unix_timestamp;
+        
         pot.total_amount = 0; // Reset the pot
         Ok(())
     }
@@ -81,6 +93,8 @@ pub mod high_score_bets {
 pub struct Leaderboard {
     pub top_player_keys: Vec<Pubkey>, // Only stores player public keys, not full data
     pub last_reset: i64,
+    // We should add a Surname, the leaderboard should not show the pub keys, we should store them, but not show them.
+    // We need to add the Scores of the players, new branch
 }
 
 /// Player's Score Account
@@ -95,6 +109,39 @@ pub struct PlayerScore {
 #[account]
 pub struct Pot {
     pub total_amount: u64,
+}
+
+#[derive(Accounts)]
+pub struct InitializePot<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 8, // 8 bytes for discriminator + 8 for total_amount
+        seeds = [b"pot", admin.key().as_ref()],
+        bump
+    )]
+    pub pot: Account<'info, Pot>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeLeaderboard<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 32 + (4 + 10 * 32), // Adjust space for array
+        seeds = [b"leaderboard", admin.key().as_ref()],
+        bump
+    )]
+    pub leaderboard: Account<'info, Leaderboard>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Submit a new score
@@ -112,11 +159,9 @@ pub struct SubmitScore<'info> {
     #[account(mut)]
     pub initializer: Signer<'info>,
 
-    #[account(mut)]
-    pub pot: Account<'info, Pot>,
-
     pub system_program: Program<'info, System>,
 }
+
 
 /// Reset the leaderboard
 #[derive(Accounts)]
