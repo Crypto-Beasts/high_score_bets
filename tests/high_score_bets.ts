@@ -94,9 +94,9 @@ describe("high_score_bets", () => {
     const timestamp = new anchor.BN(Date.now() / 1000);
 
     console.log(actionHash);
-    
+
     await program.methods
-      .submitScore(new anchor.BN(500), actionHashArray, timestamp)
+      .submitScore(new anchor.BN(500), "Player 1", actionHashArray, timestamp)
       .accounts({
         playerScore: playerScorePDA,
         initializer: player1.publicKey,
@@ -116,8 +116,8 @@ describe("high_score_bets", () => {
     console.log("Multiple players submitting scores...");
 
     const players = [
-      { keypair: player2, score: 800 },
-      { keypair: player3, score: 300 },
+      { keypair: player2, score: 800, name: "Player 2" },
+      { keypair: player3, score: 300, name: "Player 3" },
     ];
 
     for (const player of players) {
@@ -133,7 +133,7 @@ describe("high_score_bets", () => {
       const timestamp = new anchor.BN(Date.now() / 1000);
 
       await program.methods
-        .submitScore(new anchor.BN(player.score), actionHashArray, timestamp)
+        .submitScore(new anchor.BN(player.score), player.name, actionHashArray, timestamp)
         .accounts({
           playerScore: playerScorePDA,
           initializer: player.keypair.publicKey,
