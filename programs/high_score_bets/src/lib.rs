@@ -26,7 +26,6 @@ pub mod high_score_bets {
         Ok(())
     }
     
-    
 
     pub fn reset_weekly_leaderboard(ctx: Context<ResetLeaderboard>) -> Result<()> {
         let leaderboard = &mut ctx.accounts.leaderboard;
@@ -40,10 +39,6 @@ pub mod high_score_bets {
         let leaderboard = &mut ctx.accounts.leaderboard;
         let pot = &mut ctx.accounts.pot;
         let clock = Clock::get()?;
-    
-        // Reset leaderboard after rewards are distributed
-        leaderboard.top_player_keys.clear();
-        leaderboard.last_reset = clock.unix_timestamp;
     
         // Send SOL to top 3 players
         for (index, player_key) in leaderboard.top_player_keys.iter().enumerate() {
@@ -69,7 +64,11 @@ pub mod high_score_bets {
                 )?;
             }
         }
-    
+        
+        // Reset leaderboard after rewards are distributed
+        leaderboard.top_player_keys.clear();
+        leaderboard.last_reset = clock.unix_timestamp;
+        
         pot.total_amount = 0; // Reset the pot
         Ok(())
     }
@@ -81,6 +80,8 @@ pub mod high_score_bets {
 pub struct Leaderboard {
     pub top_player_keys: Vec<Pubkey>, // Only stores player public keys, not full data
     pub last_reset: i64,
+    // We should add a Surname, the leaderboard should not show the pub keys, we should store them, but not show them.
+    // We need to add the Scores of the players, new branch
 }
 
 /// Player's Score Account
@@ -97,7 +98,6 @@ pub struct Pot {
     pub total_amount: u64,
 }
 
-/// Submit a new score
 /// Submit a new score
 #[derive(Accounts)]
 pub struct SubmitScore<'info> {
