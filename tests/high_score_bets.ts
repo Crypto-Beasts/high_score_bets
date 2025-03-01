@@ -23,7 +23,7 @@ describe("high_score_bets", () => {
 
     // Find PDAs
     [leaderboardPDA] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("leaderboard"), admin.publicKey.toBuffer()],
+      [Buffer.from("leaderboard")],
       program.programId
     );
 
@@ -93,15 +93,19 @@ describe("high_score_bets", () => {
     const actionHashArray = Array.from(actionHash);
     const timestamp = new anchor.BN(Date.now() / 1000);
 
+    console.log(actionHash);
+
     await program.methods
-      .submitScore(new anchor.BN(500), actionHashArray, timestamp)
-      .accounts({
-        playerScore: playerScorePDA,
-        initializer: player1.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([player1])
-      .rpc();
+    .submitScore(new anchor.BN(500), "Player 1", actionHashArray, timestamp)
+    .accounts({
+      playerScore: playerScorePDA,
+      leaderboard: leaderboardPDA, 
+      initializer: player1.publicKey,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    })
+    .signers([player1])
+    .rpc();
+  
 
     console.log("Score submitted!");
 
@@ -114,8 +118,8 @@ describe("high_score_bets", () => {
     console.log("Multiple players submitting scores...");
 
     const players = [
-      { keypair: player2, score: 800 },
-      { keypair: player3, score: 300 },
+      { keypair: player2, score: 800, name: "Player 2" },
+      { keypair: player3, score: 300, name: "Player 3" },
     ];
 
     for (const player of players) {
@@ -131,9 +135,10 @@ describe("high_score_bets", () => {
       const timestamp = new anchor.BN(Date.now() / 1000);
 
       await program.methods
-        .submitScore(new anchor.BN(player.score), actionHashArray, timestamp)
+        .submitScore(new anchor.BN(player.score), player.name, actionHashArray, timestamp)
         .accounts({
           playerScore: playerScorePDA,
+          leaderboard: leaderboardPDA,
           initializer: player.keypair.publicKey,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
