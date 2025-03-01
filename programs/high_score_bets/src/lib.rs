@@ -27,34 +27,53 @@ pub mod high_score_bets {
         let player_score = &mut ctx.accounts.player_score;
         let leaderboard = &mut ctx.accounts.leaderboard;
     
-        // Save the best score
+        // Update the player's best score if it's higher
         if final_score > player_score.best_score {
             player_score.best_score = final_score;
         }
     
-        // Save action hash for replay verification
+        // Store last action hash and timestamp for verification
         player_score.last_action_hash = action_hash;
         player_score.last_timestamp = timestamp;
     
-        // Find existing player in the leaderboard
-        if let Some(entry) = leaderboard.top_players.iter_mut().find(|p| p.player_key == ctx.accounts.initializer.key()) {
-            entry.score = final_score; // Update score
-        } else {
-            // Add new player entry
+        let player_key = ctx.accounts.initializer.key();
+        let mut found = false;
+    
+        // Check if player already exists in the leaderboard
+        for entry in leaderboard.top_players.iter_mut() {
+            if entry.player_key == player_key {
+                // Update score if higher
+                if final_score > entry.score {
+                    entry.score = final_score;
+                }
+                found = true;
+                break;
+            }
+        }
+    
+        // If player is NOT in the leaderboard, add them
+        if !found {
             leaderboard.top_players.push(PlayerEntry {
-                player_key: ctx.accounts.initializer.key(),
+                player_key,
                 surname: surname.clone(),
                 score: final_score,
             });
         }
     
-        // Sort leaderboard by score (highest first)
-        leaderboard.top_players.sort_by(|a, b| b.score.cmp(&a.score));
+        // Sort the leaderboard by highest score
+        leaderboard.top_players.sort_by(|a, b| {
+            b.score.cmp(&a.score).then_with(|| a.player_key.cmp(&b.player_key)) 
+        });
+
+        // Keep only the top 10 players
+        if leaderboard.top_players.len() > 10 {
+            leaderboard.top_players.truncate(10);
+        }
     
-        msg!("Score submitted: {} for player {}", final_score, surname);
-    
+        msg!("Score submitted: {} for player {} ({})", final_score, player_key, surname);
         Ok(())
     }
+    
     
     pub fn reset_weekly_leaderboard(ctx: Context<ResetLeaderboard>) -> Result<()> {
         let leaderboard = &mut ctx.accounts.leaderboard;
@@ -68,23 +87,22 @@ pub mod high_score_bets {
         let leaderboard = &mut ctx.accounts.leaderboard;
         let pot = &mut ctx.accounts.pot;
         let clock = Clock::get()?;
-    
-        // Send SOL to top 3 players
+
+        // Distribute rewards
         for (index, player_entry) in leaderboard.top_players.iter().enumerate() {
             let reward_amount = match index {
-                0 => pot.total_amount * 50 / 100, // 50% to 1st place
-                1 => pot.total_amount * 30 / 100, // 30% to 2nd place
-                2 => pot.total_amount * 20 / 100, // 20% to 3rd place
+                0 => pot.total_amount * 50 / 100, 
+                1 => pot.total_amount * 30 / 100, 
+                2 => pot.total_amount * 20 / 100, 
                 _ => 0,
             };
-    
+
             if reward_amount > 0 {
-                // Transfer SOL to the player's account
                 invoke(
                     &system_instruction::transfer(
-                        &pot.to_account_info().key(),  // Sender (pot)
-                        &player_entry.player_key.key(),             // Receiver (player)
-                        reward_amount,                 // Amount in lamports
+                        &pot.to_account_info().key(),  
+                        &player_entry.player_key.key(),
+                        reward_amount,                
                     ),
                     &[
                         pot.to_account_info(),
@@ -93,14 +111,15 @@ pub mod high_score_bets {
                 )?;
             }
         }
-        
-        // Reset leaderboard after rewards are distributed
+
+        // Reset leaderboard
         leaderboard.top_players.clear();
         leaderboard.last_reset = clock.unix_timestamp;
-        
-        pot.total_amount = 0; // Reset the pot
+        pot.total_amount = 0;
+
         Ok(())
     }
+
     
 }
 
@@ -153,10 +172,10 @@ pub struct InitializePot<'info> {
 #[derive(Accounts)]
 pub struct InitializeLeaderboard<'info> {
     #[account(
-        init,
+        init_if_needed,
         payer = admin,
-        space = 8 + 32 + (4 + 10 * 32), // Adjust space for array
-        seeds = [b"leaderboard", admin.key().as_ref()],
+        space = 8 + 32 + (4 + 10 * 32 + 4 + 8), // Adjust space for array
+        seeds = [b"leaderboard"],
         bump
     )]
     pub leaderboard: Account<'info, Leaderboard>,
@@ -170,7 +189,9 @@ pub struct InitializeLeaderboard<'info> {
 #[derive(Accounts)]
 pub struct SubmitScore<'info> {
     #[account(
-        mut,
+        init_if_needed, 
+        payer = initializer,
+        space = 8 + 64, 
         seeds = [b"player_score", initializer.key().as_ref()],
         bump,
     )]
@@ -195,7 +216,7 @@ pub struct SubmitScore<'info> {
 pub struct ResetLeaderboard<'info> {
     #[account(
         mut,
-        seeds = [b"leaderboard", admin.key().as_ref()],
+        seeds = [b"leaderboard"],
         bump,
     )]
     pub leaderboard: Account<'info, Leaderboard>, 
