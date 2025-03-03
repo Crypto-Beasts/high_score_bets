@@ -111,7 +111,20 @@ export default class GameScene extends Phaser.Scene {
         i--;
       }
     }
+
+    if (this.music.playing() === false) {
+      this.scene.start("DebriefScene", {
+        score: this.score,
+        totalNotes: this.totalNotes,
+        notesHit: this.notesHit,
+        longestStreak: this.longestStreak,
+        failed: this.failed
+      });
+    }
   }
+
+ 
+  
 
   handlePlayerInput(event) {
     const keyPressed = event.key.toUpperCase();

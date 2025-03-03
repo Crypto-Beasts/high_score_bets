@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import LoadingScene from "./scenes/LoadingScene.js";
 import MainMenuScene from "./scenes/MainMenuScene.js";
 import GameScene from "./scenes/GameScene.js";
+import DebriefScene from "./scenes/DebriefScene.js";
 
 const config = {
   type: Phaser.AUTO,
@@ -11,7 +12,7 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [LoadingScene, MainMenuScene, GameScene],
+  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene],
 };
 
 const game = new Phaser.Game(config);
