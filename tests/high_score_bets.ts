@@ -153,6 +153,23 @@ describe("high_score_bets", () => {
     }
   });
 
+  it("Leaderboard correctly assigns rankings and medals", async () => {
+    console.log("🔍 Fetching leaderboard...");
+    const leaderboardAccount = await program.account.leaderboard.fetch(leaderboardPDA);
+  
+    console.log("🏆 Leaderboard Rankings:");
+    leaderboardAccount.topPlayers.forEach((player, index) => {
+      const medal = index === 0 ? "🥇 Gold" : index === 1 ? "🥈 Silver" : index === 2 ? "🥉 Bronze" : `Rank ${index + 1}`;
+      console.log(`${medal}: ${player.surname} - ${player.score} points`);
+    });
+  
+    assert(leaderboardAccount.topPlayers.length > 0, "Leaderboard should not be empty");
+    assert.equal(leaderboardAccount.topPlayers[0].rank, 1, "Top player should have rank 1");
+    assert.equal(leaderboardAccount.topPlayers[1].rank, 2, "Second player should have rank 2");
+    assert.equal(leaderboardAccount.topPlayers[2].rank, 3, "Third player should have rank 3");
+  });
+
+  
   it("Distribute rewards to top players", async () => {
     console.log("💰 Distributing rewards...");
     await program.methods

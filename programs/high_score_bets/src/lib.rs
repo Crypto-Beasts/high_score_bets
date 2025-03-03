@@ -42,7 +42,6 @@ pub mod high_score_bets {
         // Check if player already exists in the leaderboard
         for entry in leaderboard.top_players.iter_mut() {
             if entry.player_key == player_key {
-                // Update score if higher
                 if final_score > entry.score {
                     entry.score = final_score;
                 }
@@ -57,20 +56,32 @@ pub mod high_score_bets {
                 player_key,
                 surname: surname.clone(),
                 score: final_score,
+                rank: 0,  // Default value, will be updated below
             });
         }
     
-        // Sort the leaderboard by highest score
-        leaderboard.top_players.sort_by(|a, b| {
-            b.score.cmp(&a.score).then_with(|| a.player_key.cmp(&b.player_key)) 
-        });
-
+        // Sort the leaderboard by highest score (tie-breaker: pubkey)
+        leaderboard.top_players.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.player_key.cmp(&b.player_key)));
+    
+        // Assign rankings and apply medals
+        for (index, entry) in leaderboard.top_players.iter_mut().enumerate() {
+            entry.rank = (index + 1) as u8; // Assign rank
+    
+            // Apply medal tags (Optional: use frontend to display these better)
+            match entry.rank {
+                1 => msg!("🥇 Gold - {}: {}", entry.surname, entry.score),
+                2 => msg!("🥈 Silver - {}: {}", entry.surname, entry.score),
+                3 => msg!("🥉 Bronze - {}: {}", entry.surname, entry.score),
+                _ => msg!("Rank {} - {}: {}", entry.rank, entry.surname, entry.score),
+            }
+        }
+    
         // Keep only the top 10 players
         if leaderboard.top_players.len() > 10 {
             leaderboard.top_players.truncate(10);
         }
     
-        msg!("Score submitted: {} for player {} ({})", final_score, player_key, surname);
+        msg!("✅ Score submitted: {} for player {} ({})", final_score, player_key, surname);
         Ok(())
     }
     
@@ -118,9 +129,7 @@ pub mod high_score_bets {
         pot.total_amount = 0;
 
         Ok(())
-    }
-
-    
+    }    
 }
 
 /// Leaderboard storing the best scores
@@ -136,6 +145,7 @@ pub struct PlayerEntry {
     pub player_key: Pubkey, 
     pub surname: String, 
     pub score: u64, 
+    pub rank: u8,
 }
 
 /// Player's Score Account
