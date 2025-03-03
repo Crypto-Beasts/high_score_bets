@@ -21,44 +21,36 @@ export default class DebriefScene extends Phaser.Scene {
     const stars = this.calculateStars(percentageHit);
     const crowdReaction = this.getCrowdReaction(percentageHit);
 
-    if (this.failed) {
-      this.add.text(width / 2, height / 3, "YOU FAILED!", {
-        fontSize: "48px",
-        fill: "#ff0000",
-        fontStyle: "bold",
-      }).setOrigin(0.5);
-    } else {
-      this.add.text(width / 2, height / 6, "Song Complete!", {
+    this.add.text(width / 2, height / 6, "Song Complete!", {
         fontSize: "36px",
         fill: "#fff",
-      }).setOrigin(0.5);
+    }).setOrigin(0.5);
 
-      this.add.text(width / 2, height / 3, `Final Score: ${this.score}`, {
+    this.add.text(width / 2, height / 3, `Final Score: ${this.score}`, {
         fontSize: "28px",
         fill: "#fff",
-      }).setOrigin(0.5);
+    }).setOrigin(0.5);
 
-      this.add.text(width / 2, height / 2.5, `Accuracy: ${percentageHit}%`, {
+    this.add.text(width / 2, height / 2.5, `Accuracy: ${percentageHit}%`, {
         fontSize: "28px",
         fill: "#fff",
-      }).setOrigin(0.5);
+    }).setOrigin(0.5);
 
-      this.add.text(width / 2, height / 2.2, `Longest Streak: ${this.longestStreak}`, {
+    this.add.text(width / 2, height / 2.2, `Longest Streak: ${this.longestStreak}`, {
         fontSize: "28px",
         fill: "#fff",
-      }).setOrigin(0.5);
+    }).setOrigin(0.5);
 
-      this.add.text(width / 2, height / 2, `⭐ Stars: ${"⭐".repeat(stars)}`, {
+    this.add.text(width / 2, height / 2, `⭐ Stars: ${"⭐".repeat(stars)}`, {
         fontSize: "32px",
         fill: "#ffcc00",
-      }).setOrigin(0.5);
+    }).setOrigin(0.5);
 
-      this.add.text(width / 2, height / 1.8, crowdReaction, {
+    this.add.text(width / 2, height / 1.8, crowdReaction, {
         fontSize: "28px",
         fill: "#fff",
-      }).setOrigin(0.5);
-    }
-
+    }).setOrigin(0.5);
+    
     // Buttons
     let retryButton = this.add.text(width / 2, height / 1.5, "Retry", {
       fontSize: "24px",
@@ -89,9 +81,9 @@ export default class DebriefScene extends Phaser.Scene {
   }
 
   getCrowdReaction(accuracy) {
-    if (accuracy >= 90) return "🌟 The crowd goes wild!";
-    if (accuracy >= 70) return "👏 The audience is impressed!";
-    if (accuracy >= 50) return "😐 A few cheers, a few boos.";
-    return "😢 The audience is disappointed...";
+    if (accuracy >= 90) return "The crowd goes wild!";
+    if (accuracy >= 70) return "The audience is impressed!";
+    if (accuracy >= 50) return "A few cheers, a few boos.";
+    return "The audience is disappointed...";
   }
 }
