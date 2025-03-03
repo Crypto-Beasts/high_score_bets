@@ -1,25 +1,17 @@
 import Phaser from "phaser";
+import LoadingScene from "./scenes/LoadingScene.js";
+import MainMenuScene from "./scenes/MainMenuScene.js";
+import GameScene from "./scenes/GameScene.js";
 
 const config = {
   type: Phaser.AUTO,
-  width: 800,
-  height: 600,
-  scene: {
-    preload,
-    create,
-    update,
+  width: 1200,
+  height: 800,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  scene: [LoadingScene, MainMenuScene, GameScene],
 };
-
-function preload() {
-  this.load.image("background", "/public/background.png");
-}
-
-function create() {
-  this.add.image(400, 300, "background");
-  this.add.text(300, 100, "Crypto Beats", { fontSize: "32px", fill: "#fff" });
-}
-
-function update() {}
 
 const game = new Phaser.Game(config);

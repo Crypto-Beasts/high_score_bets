@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "howler": "^2.2.4",
     "phaser": "^3.88.2",
     "vite": "^6.2.0"
   }
