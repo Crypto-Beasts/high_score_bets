@@ -8,6 +8,9 @@ export default class GameScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
+    this.songData = this.cache.json.get("songData");
+    this.currentNoteIndex = 0;
+
     // Background fills screen
     this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
 
@@ -62,14 +65,22 @@ export default class GameScene extends Phaser.Scene {
 
     // Music
     this.music = this.sound.add("music");
-    this.music.play();
-    this.scheduleKeyDrops();
+    //this.currentNoteIndex = 0;
+
+    // Delay the music start to match the first note reaching the judgment line
+    this.time.delayedCall(2850, () => {
+        this.music.play();
+    });
+
+    this.startOffset = 0.48;
+    // this.scheduleKeyDrops();
 
     // Keyboard input
     this.input.keyboard.on("keydown", this.handlePlayerInput, this);
     this.input.keyboard.on("keyup", this.handleKeyRelease, this);
   }
 
+  /*
   scheduleKeyDrops() {
     const BPM = 107;
     const BEAT_INTERVAL = (60 / BPM) * 1000;
@@ -97,26 +108,38 @@ export default class GameScene extends Phaser.Scene {
 
     this.totalNotes++;
   }
-
-  spawnKey(key, isHoldNote) {
-    const lane = this.keyLanes[key];
+*/
   
+spawnKey(key, isHoldNote) {
+    if (!key) {
+        console.warn("Skipping a note with a null key.");
+        return; // Skip this note and prevent errors
+    }
+
+    key = key.toUpperCase(); // Ensure the key is uppercase
+    const lane = this.keyLanes[key];
+
+    if (!lane) {
+        console.error(`Invalid key: ${key}`);
+        return;
+    }
+
     if (isHoldNote) {
-      // No key sprite, only the hold bar
-      const holdBar = this.add.rectangle(lane.x, 30, 20, 100, 0xffffff);
-      holdBar.keyType = key;
-      holdBar.isHold = true;
-      holdBar.held = false;
-      this.fallingKeys.push(holdBar);
+        const holdBar = this.add.rectangle(lane.x, 30, 20, 100, 0xffffff);
+        holdBar.keyType = key;
+        holdBar.isHold = true;
+        holdBar.held = false;
+        this.fallingKeys.push(holdBar);
     } else {
-      // Normal key
-      const keySprite = this.add.image(lane.x, 0, lane.sprite);
-      keySprite.keyType = key;
-      keySprite.isHold = false;
-      keySprite.held = false;
-      this.fallingKeys.push(keySprite);
+        const keySprite = this.add.image(lane.x, 0, lane.sprite);
+        keySprite.keyType = key;
+        keySprite.isHold = false;
+        keySprite.held = false;
+        this.fallingKeys.push(keySprite);
     }
   }
+
+
   
 
   showFeedback(text, color, key) {
@@ -143,36 +166,50 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  update() {
+  update(time, delta) {
     const judgmentY = this.scale.height - 100;
     const hitMargin = 30;
 
-    for (let i = 0; i < this.fallingKeys.length; i++) {
-      let key = this.fallingKeys[i];
-      key.y += 1;
-      if (key.isHold && key.holdBar) key.holdBar.y += 3;
+    
+    let currentTime = (time / 1000) - 0.5; // Apply small offset
 
-      if (key.y > this.scale.height) {
-        this.showFeedback("Miss", "#ff0000", key.keyType);
-        if (key.isHold && key.holdBar) key.holdBar.destroy();
-        key.destroy();
-        this.fallingKeys.splice(i, 1);
-        i--;
-        this.currentStreak = 0;
-        this.failed = true;
-      }
+    // Spawn all notes that should appear at this point in time
+    while (this.currentNoteIndex < this.songData.length && this.songData[this.currentNoteIndex].time <= currentTime) {
+        let noteData = this.songData[this.currentNoteIndex];
+        this.spawnKey(noteData.key, noteData.hold);
+        this.currentNoteIndex++; // Move to the next note
     }
 
-    if (!this.music.isPlaying) {
+    // Update falling notes
+    for (let i = 0; i < this.fallingKeys.length; i++) {
+        let key = this.fallingKeys[i];
+        key.y += 1;
+        if (key.isHold && key.holdBar) key.holdBar.y += 3;
+
+        if (key.y > this.scale.height) {
+            this.showFeedback("Miss", "#ff0000", key.keyType);
+            if (key.isHold && key.holdBar) key.holdBar.destroy();
+            key.destroy();
+            this.fallingKeys.splice(i, 1);
+            i--;
+            this.currentStreak = 0;
+            this.failed = true;
+        }
+    }
+
+    // Only check if the song is over AFTER the delay has passed
+    if (this.music.isPlaying && this.music.seek >= this.music.duration) {
       this.scene.start("DebriefScene", {
-        score: this.score,
-        totalNotes: this.totalNotes,
-        notesHit: this.notesHit,
-        longestStreak: this.longestStreak,
-        failed: this.failed,
+          score: this.score,
+          totalNotes: this.totalNotes,
+          notesHit: this.notesHit,
+          longestStreak: this.longestStreak,
+          failed: this.failed,
       });
     }
-  }
+}
+
+
   handlePlayerInput(event) {
     const keyPressed = event.key.toUpperCase();
     const judgmentY = this.scale.height - 100;
