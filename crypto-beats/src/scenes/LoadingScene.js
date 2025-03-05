@@ -40,5 +40,6 @@ export default class LoadingScene extends Phaser.Scene {
     this.load.image("fullscreen", "/public/fullscreen.png");
     this.load.image("playButton", "/public/play.png");
     this.load.audio("music", "/public/music.mp3");
+    this.load.audio("menuMusic", "/public/generalMusic.mp3");
   }
 }

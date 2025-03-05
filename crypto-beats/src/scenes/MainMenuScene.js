@@ -18,6 +18,12 @@ export default class MainMenuScene extends Phaser.Scene {
       fontStyle: "bold"
     }).setOrigin(0.5);
 
+    // Play background music if not already playing
+    if (!this.sound.get("menuMusic")) {
+      this.menuMusic = this.sound.add("menuMusic", { loop: true, volume: 0.5 });
+      this.menuMusic.play();
+    }
+
     // Start Game Button
     let startButton = this.add.text(width / 2, height / 2, "Start Game", {
       fontSize: "32px",
@@ -28,6 +34,7 @@ export default class MainMenuScene extends Phaser.Scene {
 
     startButton.on("pointerdown", () => {
       this.scene.start("SongSelectionScene");
+      this.sound.get("menuMusic").stop(); // Stop menu music
     });
 
     // About Us Button
@@ -39,7 +46,7 @@ export default class MainMenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive();
 
     aboutButton.on("pointerdown", () => {
-      this.scene.start("AboutScene");
+      this.scene.start("AboutUsScene");
     });
   }
 }
