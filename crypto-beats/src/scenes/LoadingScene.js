@@ -39,7 +39,10 @@ export default class LoadingScene extends Phaser.Scene {
     this.load.image("key_d", "/public/key_d.png");
     this.load.image("fullscreen", "/public/fullscreen.png");
     this.load.image("playButton", "/public/play.png");
-    this.load.audio("music", "/public/music.mp3");
+    this.load.audio("music", "/public/Aguado_Menuet_Aminor.mp3");  // here should be the list of all the music
     this.load.audio("menuMusic", "/public/generalMusic.mp3");
+    
+    // Load JSON song data
+    this.load.json("songData", "/public/music.json");
   }
 }

@@ -1,0 +1,737 @@
+[
+    {
+        "time": 0.0,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 0.48,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 0.48,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 0.96,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 1.2,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 1.44,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 1.92,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 1.92,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 2.4,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 2.6399999999999997,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 2.88,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 3.36,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 3.36,
+        "key": "W",
+        "duration": 1.44
+    },
+    {
+        "time": 3.5999999999999996,
+        "key": "S",
+        "duration": 0.24
+    },
+    {
+        "time": 3.84,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 4.08,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 4.319999999999999,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 4.56,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 4.8,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 4.8,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 5.279999999999999,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 5.76,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 6.239999999999999,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 6.239999999999999,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 6.72,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 6.959999999999999,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 7.199999999999999,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 7.68,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 7.68,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 8.16,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 8.399999999999999,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 8.639999999999999,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 9.12,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 9.6,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 10.08,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 10.559999999999999,
+        "key": "W",
+        "duration": 1.44
+    },
+    {
+        "time": 11.04,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 11.04,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 11.04,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 11.52,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 12.0,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 12.0,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 12.479999999999999,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 12.719999999999999,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 12.959999999999999,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 13.44,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 13.44,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 13.919999999999998,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 14.159999999999998,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 14.399999999999999,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 14.879999999999999,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 14.879999999999999,
+        "key": "W",
+        "duration": 1.44
+    },
+    {
+        "time": 15.12,
+        "key": "S",
+        "duration": 0.24
+    },
+    {
+        "time": 15.36,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 15.6,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 15.839999999999998,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 16.08,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 16.32,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 16.32,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 16.799999999999997,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 17.279999999999998,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 17.759999999999998,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 17.759999999999998,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 18.24,
+        "key": "A",
+        "duration": 0.24
+    },
+    {
+        "time": 18.48,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 18.72,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 19.2,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 19.2,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 19.68,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 19.919999999999998,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 20.16,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 20.639999999999997,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 21.119999999999997,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 21.599999999999998,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 22.08,
+        "key": "W",
+        "duration": 1.44
+    },
+    {
+        "time": 22.56,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 22.56,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 22.56,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 23.04,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 23.52,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 23.52,
+        "key": "A",
+        "duration": 0.96
+    },
+    {
+        "time": 24.0,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 24.479999999999997,
+        "key": "S",
+        "duration": 0.24
+    },
+    {
+        "time": 24.72,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 24.959999999999997,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 24.979999999999997,
+        "key": "W",
+        "duration": 0.45999999999999996
+    },
+    {
+        "time": 25.439999999999998,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 25.919999999999998,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 26.4,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 26.4,
+        "key": "S",
+        "duration": 0.96
+    },
+    {
+        "time": 26.88,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 27.36,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 27.599999999999998,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 27.839999999999996,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 27.839999999999996,
+        "key": "A",
+        "duration": 2.4
+    },
+    {
+        "time": 28.319999999999997,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 28.799999999999997,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 29.279999999999998,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 29.759999999999998,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 30.24,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 30.72,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 30.72,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 31.2,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 31.679999999999996,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 32.16,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 32.16,
+        "key": "W",
+        "duration": 0.96
+    },
+    {
+        "time": 32.64,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 33.12,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 33.12,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 33.12,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 33.599999999999994,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 33.599999999999994,
+        "key": "A",
+        "duration": 0.96
+    },
+    {
+        "time": 34.08,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 34.559999999999995,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 35.04,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 35.04,
+        "key": "A",
+        "duration": 0.96
+    },
+    {
+        "time": 35.519999999999996,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 36.0,
+        "key": "S",
+        "duration": 0.24
+    },
+    {
+        "time": 36.239999999999995,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 36.48,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 36.5,
+        "key": "W",
+        "duration": 0.45999999999999996
+    },
+    {
+        "time": 36.96,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 37.44,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 37.919999999999995,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 37.919999999999995,
+        "key": "S",
+        "duration": 0.96
+    },
+    {
+        "time": 38.4,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 38.879999999999995,
+        "key": "D",
+        "duration": 0.24
+    },
+    {
+        "time": 39.12,
+        "key": "W",
+        "duration": 0.24
+    },
+    {
+        "time": 39.36,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 39.36,
+        "key": "A",
+        "duration": 2.4
+    },
+    {
+        "time": 39.839999999999996,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 40.32,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 40.8,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 41.279999999999994,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 41.76,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 42.239999999999995,
+        "key": "S",
+        "duration": 0.48
+    },
+    {
+        "time": 42.239999999999995,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 42.72,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 43.199999999999996,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 43.68,
+        "key": "A",
+        "duration": 0.48
+    },
+    {
+        "time": 43.68,
+        "key": "W",
+        "duration": 0.96
+    },
+    {
+        "time": 44.16,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 44.63999999999999,
+        "key": "D",
+        "duration": 0.48
+    },
+    {
+        "time": 44.63999999999999,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 44.63999999999999,
+        "key": "W",
+        "duration": 0.48
+    },
+    {
+        "time": 45.12,
+        "key": "A",
+        "duration": 1.44
+    },
+    {
+        "time": 45.12,
+        "key": "A",
+        "duration": 1.44
+    }
+]
