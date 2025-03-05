@@ -3,6 +3,8 @@ import LoadingScene from "./scenes/LoadingScene.js";
 import MainMenuScene from "./scenes/MainMenuScene.js";
 import GameScene from "./scenes/GameScene.js";
 import DebriefScene from "./scenes/DebriefScene.js";
+import SongSelectionScene from "./scenes/SongSelectionScene.js";
+import AboutUsScene from "./scenes/AboutUsScene.js";
 
 const config = {
   type: Phaser.AUTO,
@@ -12,7 +14,7 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene],
+  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene],
 };
 
 const game = new Phaser.Game(config);
