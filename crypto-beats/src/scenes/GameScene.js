@@ -72,7 +72,7 @@ export default class GameScene extends Phaser.Scene {
         this.music.play();
     });
 
-    this.startOffset = 0.48;
+    // this.startOffset = 0.48;
     // this.scheduleKeyDrops();
 
     // Keyboard input
@@ -138,10 +138,7 @@ spawnKey(key, isHoldNote) {
         this.fallingKeys.push(keySprite);
     }
   }
-
-
   
-
   showFeedback(text, color, key) {
     // Text feedback
     this.feedbackText.setText(text);
@@ -170,8 +167,10 @@ spawnKey(key, isHoldNote) {
     const judgmentY = this.scale.height - 100;
     const hitMargin = 30;
 
-    
     let currentTime = (time / 1000) - 0.5; // Apply small offset
+
+    // Only spawn notes if music is playing
+    if (!this.music.isPlaying) return;
 
     // Spawn all notes that should appear at this point in time
     while (this.currentNoteIndex < this.songData.length && this.songData[this.currentNoteIndex].time <= currentTime) {
@@ -180,11 +179,14 @@ spawnKey(key, isHoldNote) {
         this.currentNoteIndex++; // Move to the next note
     }
 
+    // Adjust falling speed if notes finish too early
+    let noteSpeed = this.scale.height / (this.music.duration * 0.9);
+
     // Update falling notes
     for (let i = 0; i < this.fallingKeys.length; i++) {
         let key = this.fallingKeys[i];
-        key.y += 1;
-        if (key.isHold && key.holdBar) key.holdBar.y += 3;
+        key.y += noteSpeed * delta / 16; // Normalize movement to frame rate
+        if (key.isHold && key.holdBar) key.holdBar.y += noteSpeed * delta / 16;
 
         if (key.y > this.scale.height) {
             this.showFeedback("Miss", "#ff0000", key.keyType);
@@ -199,16 +201,15 @@ spawnKey(key, isHoldNote) {
 
     // Only check if the song is over AFTER the delay has passed
     if (this.music.isPlaying && this.music.seek >= this.music.duration) {
-      this.scene.start("DebriefScene", {
-          score: this.score,
-          totalNotes: this.totalNotes,
-          notesHit: this.notesHit,
-          longestStreak: this.longestStreak,
-          failed: this.failed,
-      });
+        this.scene.start("DebriefScene", {
+            score: this.score,
+            totalNotes: this.totalNotes,
+            notesHit: this.notesHit,
+            longestStreak: this.longestStreak,
+            failed: this.failed,
+        });
     }
 }
-
 
   handlePlayerInput(event) {
     const keyPressed = event.key.toUpperCase();
