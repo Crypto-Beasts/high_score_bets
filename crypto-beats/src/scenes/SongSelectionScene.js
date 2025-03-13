@@ -3,6 +3,8 @@ import Phaser from "phaser";
 export default class SongSelectionScene extends Phaser.Scene {
   constructor() {
     super({ key: "SongSelectionScene" });
+    this.selectedSong = null;
+    this.selectedMusic = null;
   }
 
   create() {
@@ -18,11 +20,20 @@ export default class SongSelectionScene extends Phaser.Scene {
       fontStyle: "bold"
     }).setOrigin(0.5);
 
-       // Play background music if not already playing
-      if (!this.sound.get("music")) {
-        this.selectedMusic = this.sound.add("music", { loop: true, volume: 0.5 });
-        this.selectedMusic.play();
+    // Song selection function
+    const selectSong = (songKey, button) => {
+      if (this.selectedMusic) {
+        this.selectedMusic.stop();
       }
+      this.selectedMusic = this.sound.add(songKey, { loop: true, volume: 0.5 });
+      this.selectedMusic.play();
+      this.selectedSong = songKey;
+
+      // Reset all buttons and highlight the selected one
+      songButton.setBackgroundColor("#008CBA");
+      songTwoButton.setBackgroundColor("#008CBA");
+      button.setBackgroundColor("#00FF00"); // Highlight selected song
+    };
 
     // Placeholder Song Option
     let songButton = this.add.text(width / 2, height / 2, "Aguado Menuet (A Minor)", {
@@ -33,7 +44,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive();
 
     songButton.on("pointerdown", () => {
-      this.scene.start("GameScene", { song: "music" });
+      selectSong("Aguado_Menuet_Aminor", songButton);
     });
 
     let songTwoButton = this.add.text(width / 2, height / 2 + 60, "Windy Summer", {
@@ -44,9 +55,25 @@ export default class SongSelectionScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive();
 
     songTwoButton.on("pointerdown", () => {
-      this.scene.start("GameScene", { song: "music" });
+      selectSong("Windy_Summer", songTwoButton);
     });
 
+    // Ready Button
+    let readyButton = this.add.text(width / 2, height / 2 + 120, "Ready", {
+      fontSize: "28px",
+      fill: "#ffffff",
+      backgroundColor: "#00AA00",
+      padding: { x: 20, y: 10 }
+    }).setOrigin(0.5).setInteractive();
+
+    readyButton.on("pointerdown", () => {
+      if (this.selectedMusic) {
+        this.selectedMusic.stop();
+      }
+      if (this.selectedSong) {
+        this.scene.start("GameScene", { song: this.selectedSong });
+      }
+    });
 
     // Back Button
     let backButton = this.add.text(width / 2, height - 100, "Back", {
@@ -57,7 +84,11 @@ export default class SongSelectionScene extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive();
 
     backButton.on("pointerdown", () => {
+      if (this.selectedMusic && this.selectedMusic.isPlaying) {
+          this.selectedMusic.pause(); // Pause instead of stopping
+      }
       this.scene.start("MainMenuScene");
     });
+  
   }
 }

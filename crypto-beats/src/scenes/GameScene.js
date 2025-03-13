@@ -14,13 +14,6 @@ export default class GameScene extends Phaser.Scene {
     // Background fills screen
     this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
 
-    // Fullscreen button
-    let fullScreenButton = this.add.image(width - 50, 50, "fullscreen").setInteractive();
-    fullScreenButton.setScale(0.5).setDepth(10);
-    fullScreenButton.on("pointerdown", () => {
-      this.scale.isFullscreen ? this.scale.stopFullscreen() : this.scale.startFullscreen();
-    });
-
     // Judgment Line
     this.judgmentLine = this.add.graphics();
     this.judgmentLine.lineStyle(4, 0xffffff, 1);
@@ -64,16 +57,12 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Music
-    this.music = this.sound.add("music");
-    //this.currentNoteIndex = 0;
+    this.music = this.sound.add("Aguado_Menuet_Aminor");
 
     // Delay the music start to match the first note reaching the judgment line
     this.time.delayedCall(2850, () => {
         this.music.play();
     });
-
-    // this.startOffset = 0.48;
-    // this.scheduleKeyDrops();
 
     // Keyboard input
     this.input.keyboard.on("keydown", this.handlePlayerInput, this);

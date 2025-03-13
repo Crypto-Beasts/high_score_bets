@@ -5,6 +5,7 @@ import GameScene from "./scenes/GameScene.js";
 import DebriefScene from "./scenes/DebriefScene.js";
 import SongSelectionScene from "./scenes/SongSelectionScene.js";
 import AboutUsScene from "./scenes/AboutUsScene.js";
+import UIOverlayScene from "./scenes/UIOverlayScene.js";
 
 const config = {
   type: Phaser.AUTO,
@@ -14,7 +15,10 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene],
+  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene, UIOverlayScene],
 };
 
 const game = new Phaser.Game(config);
+
+// Start the UIOverlayScene and keep it active across all scenes
+// game.scene.start("UIOverlayScene");
