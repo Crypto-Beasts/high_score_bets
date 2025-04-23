@@ -32,7 +32,7 @@ export default class GameScene extends Phaser.Scene {
     this.notesHit = 0;
     this.failed = false;
 
-    this.scoreText = this.add.text(20, 20, "Score: 0", { fontSize: "24px", fill: "#fff" });
+    //this.scoreText = this.add.text(20, 20, "Score: 0", { fontSize: "24px", fill: "#fff" });
 
     // Feedback Text (for "Perfect", "Good", "Miss")
     this.feedbackText = this.add.text(width / 2, height / 2, "", {
