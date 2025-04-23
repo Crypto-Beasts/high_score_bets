@@ -29,6 +29,8 @@ export default class LoadingScene extends Phaser.Scene {
       progressBox.destroy();
       loadingText.destroy();
       this.scene.start("MainMenuScene");
+      this.scene.launch("UIOverlayScene"); // Ensure UIOverlayScene starts after loading
+
     });
 
     // Load assets
@@ -37,9 +39,9 @@ export default class LoadingScene extends Phaser.Scene {
     this.load.image("key_a", "/public/key_a.png");
     this.load.image("key_s", "/public/key_s.png");
     this.load.image("key_d", "/public/key_d.png");
-    this.load.image("fullscreen", "/public/fullscreen.png");
-    this.load.image("playButton", "/public/play.png");
-    this.load.audio("music", "/public/Aguado_Menuet_Aminor.mp3");  // here should be the list of all the music
+    this.load.image("fullscreen", "/public/fullscreenButton.png");
+    this.load.audio("Aguado_Menuet_Aminor", "/public/Aguado_Menuet_Aminor.mp3");
+    this.load.audio("Windy_Summer", "/public/Windy_Summer.mp3");
     this.load.audio("menuMusic", "/public/generalMusic.mp3");
     
     // Load JSON song data
