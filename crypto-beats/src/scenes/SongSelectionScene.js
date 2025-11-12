@@ -1,10 +1,12 @@
 import Phaser from "phaser";
+import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG } from "../utils/difficultyManager.js";
 
 export default class SongSelectionScene extends Phaser.Scene {
   constructor() {
     super({ key: "SongSelectionScene" });
     this.selectedSong = null;
     this.selectedMusic = null;
+    this.selectedDifficulty = DIFFICULTY_LEVELS.NORMAL; // Default to Normal
   }
 
   create() {
@@ -14,11 +16,73 @@ export default class SongSelectionScene extends Phaser.Scene {
     this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
 
     // Scene Title
-    this.add.text(width / 2, height / 6, "Select a Song", {
+    this.add.text(width / 2, height / 8, "Select a Song", {
       fontSize: "40px",
       fill: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
+
+    // Difficulty Selection Title
+    this.add.text(width / 2, height / 5, "Difficulty", {
+      fontSize: "28px",
+      fill: "#ffffff",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
+
+    // Difficulty selection function
+    const selectDifficulty = (difficulty, button) => {
+      this.selectedDifficulty = difficulty;
+      // Reset all difficulty buttons
+      easyButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.EASY].color);
+      easyButton.setColor("#000000");
+      normalButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL].color);
+      normalButton.setColor("#000000");
+      hardButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.HARD].color);
+      hardButton.setColor("#ffffff");
+      // Highlight selected
+      button.setBackgroundColor("#ffffff");
+      button.setColor("#000000");
+    };
+
+    // Difficulty buttons
+    const difficultyY = height / 3.5;
+    const difficultySpacing = 80;
+
+    let easyButton = this.add.text(width / 2 - difficultySpacing, difficultyY, "Easy", {
+      fontSize: "24px",
+      fill: "#000000",
+      backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.EASY].color,
+      padding: { x: 15, y: 8 }
+    }).setOrigin(0.5).setInteractive();
+
+    easyButton.on("pointerdown", () => {
+      selectDifficulty(DIFFICULTY_LEVELS.EASY, easyButton);
+    });
+
+    let normalButton = this.add.text(width / 2, difficultyY, "Normal", {
+      fontSize: "24px",
+      fill: "#000000",
+      backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL].color,
+      padding: { x: 15, y: 8 }
+    }).setOrigin(0.5).setInteractive();
+
+    normalButton.on("pointerdown", () => {
+      selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
+    });
+
+    let hardButton = this.add.text(width / 2 + difficultySpacing, difficultyY, "Hard", {
+      fontSize: "24px",
+      fill: "#ffffff",
+      backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.HARD].color,
+      padding: { x: 15, y: 8 }
+    }).setOrigin(0.5).setInteractive();
+
+    hardButton.on("pointerdown", () => {
+      selectDifficulty(DIFFICULTY_LEVELS.HARD, hardButton);
+    });
+
+    // Highlight default (Normal)
+    selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
 
     // Song selection function
     const selectSong = (songKey, button) => {
@@ -36,7 +100,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     };
 
     // Placeholder Song Option
-    let songButton = this.add.text(width / 2, height / 2, "Aguado Menuet (A Minor)", {
+    let songButton = this.add.text(width / 2, height / 2.2, "Aguado Menuet (A Minor)", {
       fontSize: "28px",
       fill: "#ffffff",
       backgroundColor: "#008CBA",
@@ -47,7 +111,7 @@ export default class SongSelectionScene extends Phaser.Scene {
       selectSong("Aguado_Menuet_Aminor", songButton);
     });
 
-    let songTwoButton = this.add.text(width / 2, height / 2 + 60, "Windy Summer", {
+    let songTwoButton = this.add.text(width / 2, height / 2.2 + 60, "Windy Summer", {
       fontSize: "28px",
       fill: "#ffffff",
       backgroundColor: "#008CBA",
@@ -59,7 +123,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     });
 
     // Ready Button
-    let readyButton = this.add.text(width / 2, height / 2 + 120, "Ready", {
+    let readyButton = this.add.text(width / 2, height / 2.2 + 120, "Ready", {
       fontSize: "28px",
       fill: "#ffffff",
       backgroundColor: "#00AA00",
@@ -71,7 +135,10 @@ export default class SongSelectionScene extends Phaser.Scene {
         this.selectedMusic.stop();
       }
       if (this.selectedSong) {
-        this.scene.start("GameScene", { song: this.selectedSong });
+        this.scene.start("GameScene", { 
+          song: this.selectedSong,
+          difficulty: this.selectedDifficulty 
+        });
       }
     });
 
