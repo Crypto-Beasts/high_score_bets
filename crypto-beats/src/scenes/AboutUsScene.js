@@ -8,8 +8,16 @@ export default class AboutUsScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
+    // Set background color as fallback
+    this.cameras.main.setBackgroundColor(0x000000);
+    
     // Background fills screen
-    this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    if (this.textures.exists("background")) {
+      this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    } else {
+      // Fallback: solid color background if image doesn't load
+      this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+    }
 
     // Scene Title
     this.add.text(width / 2, height / 6, "About Us", {

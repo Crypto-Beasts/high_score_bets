@@ -7,8 +7,18 @@ export default class MainMenuScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    
+    // Set background color as fallback
+    this.cameras.main.setBackgroundColor(0x000000);
 
-    this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    // Try to load background image, with fallback
+    if (this.textures.exists("background")) {
+      this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    } else {
+      // Fallback: solid color background if image doesn't load
+      console.warn("Background image not found, using fallback color");
+      this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+    }
 
     this.add.text(width / 2, height / 4, "Crypto Beats", {
         fontSize: "48px",

@@ -9,16 +9,25 @@ import UIOverlayScene from "./scenes/UIOverlayScene.js";
 
 const config = {
   type: Phaser.AUTO,
-  width: 1200,
-  height: 800,
+  parent: 'game-container', // Attach to container
+  width: window.innerWidth || 1920,
+  height: window.innerHeight || 1080,
+  backgroundColor: '#000000', // Black background while loading
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene, UIOverlayScene],
 };
 
 const game = new Phaser.Game(config);
+
+// Handle window resize - game automatically fills the window
+window.addEventListener('resize', () => {
+  if (game.scale) {
+    game.scale.resize(window.innerWidth, window.innerHeight);
+  }
+});
 
 // Start the UIOverlayScene and keep it active across all scenes
 // game.scene.start("UIOverlayScene");

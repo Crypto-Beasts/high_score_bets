@@ -1,5 +1,8 @@
 import Phaser from "phaser";
 import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty } from "../utils/difficultyManager.js";
+import { getSongById, getAllSongs } from "../config/songs.js";
+import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong } from "../utils/errorHandler.js";
+import { createNotePool, createHoldNotePool } from "../utils/objectPool.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -9,11 +12,45 @@ export default class GameScene extends Phaser.Scene {
   create(data) {
     const { width, height } = this.scale;
 
+    // Get song ID from scene data or default to first song
+    let songId = data?.song || "Aguado_Menuet_Aminor";
+    let song = getSongById(songId);
+    
+    // Validate song exists and audio is available
+    if (!song) {
+      logError("GameScene", `Song not found: ${songId}`);
+      const allSongs = getAllSongs();
+      const fallbackId = getFallbackSong(allSongs);
+      if (fallbackId) {
+        songId = fallbackId;
+        song = getSongById(songId);
+        console.warn(`[GameScene] Using fallback song: ${songId}`);
+      } else {
+        showError(this, "No songs available. Please check your song configuration.", () => {
+          this.scene.start("MainMenuScene");
+        });
+        return;
+      }
+    }
+    
+    // Check if audio exists
+    if (!audioExists(this, songId)) {
+      logError("GameScene", `Audio file not found for song: ${songId}`);
+      showError(this, `Audio file not found for ${song.name}. Please check file: ${song.audioFile}`, () => {
+        this.scene.start("SongSelectionScene");
+      });
+      return;
+    }
+    
     // Get difficulty from scene data or default to NORMAL
     const difficulty = data?.difficulty || DIFFICULTY_LEVELS.NORMAL;
     const difficultyConfig = getDifficultyConfig(difficulty);
     
-    console.log(`[GameScene] Starting with difficulty: ${difficultyConfig.name}`);
+    console.log(`[GameScene] Starting song: ${song.name}, difficulty: ${difficultyConfig.name}`);
+
+    // Store song info for debrief scene
+    this.currentSongId = songId;
+    this.currentDifficulty = difficulty;
 
     // Synchronization constants - FALL_TIME always stays 2.0s to maintain sync
     const FALL_TIME = 2.0; // seconds - time for notes to fall from top to judgment line (ALWAYS CONSTANT)
@@ -29,18 +66,68 @@ export default class GameScene extends Phaser.Scene {
     this.perfectMargin = difficultyConfig.perfectMargin;
     this.goodMargin = difficultyConfig.goodMargin;
 
-    // Get original song data and adjust for difficulty (filtering, gaps, etc.)
-    const originalSongData = this.cache.json.get("songData");
-    this.songData = adjustSongDataForDifficulty(originalSongData, difficulty);
-    console.log(`[GameScene] Song data loaded:`, this.songData ? `${this.songData.length} notes` : "NULL/UNDEFINED");
-    if (!this.songData || !Array.isArray(this.songData)) {
-      console.error(`[GameScene] ERROR: songData is not valid!`, this.songData);
+    // Get song-specific JSON data from cache
+    const songDataKey = songId + "_data";
+    let originalSongData = null;
+    
+    // Check if JSON exists in cache
+    if (!jsonExists(this, songDataKey)) {
+      logError("GameScene", `Song data not found in cache: ${songDataKey}`);
+      
+      // Try fallback to old cache key
+      if (jsonExists(this, "songData")) {
+        console.warn(`[GameScene] Using fallback songData cache key`);
+        originalSongData = this.cache.json.get("songData");
+      } else {
+        showError(this, `Song data not found for ${song.name}. Please check file: ${song.jsonFile}`, () => {
+          this.scene.start("SongSelectionScene");
+        });
+        return;
+      }
+    } else {
+      originalSongData = this.cache.json.get(songDataKey);
     }
+    
+    // Validate song data structure
+    const validation = validateSongData(originalSongData, songId);
+    
+    if (!validation.valid) {
+      logError("GameScene", validation.error);
+      showError(this, `Invalid song data for ${song.name}:\n${validation.error}`, () => {
+        this.scene.start("SongSelectionScene");
+      });
+      return;
+    }
+    
+    // Handle both old format (array) and new format (with metadata)
+    let notesData = validation.notes;
+    if (originalSongData && originalSongData.notes) {
+      // New format with metadata - use validated notes
+      notesData = validation.notes;
+    }
+    
+    if (!notesData || notesData.length === 0) {
+      showError(this, `No notes found in song data for ${song.name}`, () => {
+        this.scene.start("SongSelectionScene");
+      });
+      return;
+    }
+    
+    this.songData = adjustSongDataForDifficulty(notesData, difficulty);
+    console.log(`[GameScene] Song data loaded: ${this.songData.length} notes`);
     this.currentNoteIndex = 0;
     this.startTime = 0; // Track when the song starts
 
+    // Set background color as fallback
+    this.cameras.main.setBackgroundColor(0x000000);
+    
     // Background fills screen
-    this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    if (this.textures.exists("background")) {
+      this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+    } else {
+      // Fallback: solid color background if image doesn't load
+      this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+    }
 
     // Judgment Line
     this.judgmentLine = this.add.graphics();
@@ -57,6 +144,13 @@ export default class GameScene extends Phaser.Scene {
     this.totalNotes = 0;
     this.notesHit = 0;
     this.failed = false;
+    
+    // Detailed statistics
+    this.perfectCount = 0;
+    this.goodCount = 0;
+    this.missCount = 0;
+    this.comboHistory = []; // Track all combos for average calculation
+    this.currentComboStart = null;
 
     this.scoreText = this.add.text(20, 20, "Score: 0", { fontSize: "24px", fill: "#fff" });
 
@@ -77,14 +171,27 @@ export default class GameScene extends Phaser.Scene {
 
     this.fallingKeys = [];
 
+    // Object pools for performance optimization
+    this.notePools = {};
+    this.holdNotePool = createHoldNotePool(this, 20);
+    
+    // Create pools for each key type
+    for (let key in this.keyLanes) {
+      this.notePools[key] = createNotePool(this, this.keyLanes[key].sprite, 15);
+    }
+
     // Static key visuals for feedback
     this.keyVisuals = {};
     for (let key in this.keyLanes) {
       this.keyVisuals[key] = this.add.image(this.keyLanes[key].x, height - 50, this.keyLanes[key].sprite);
     }
+    
+    // Performance optimization: Cache values to reduce lookups
+    this.screenHeight = height;
+    this.cullMargin = 100; // Cull notes this many pixels off-screen
 
-    // Music
-    this.music = this.sound.add("Aguado_Menuet_Aminor");
+    // Music - use the selected song
+    this.music = this.sound.add(songId);
 
     // Calculate when to start music
     // If first note is at time T, we need to start music at (T - FALL_TIME) so note arrives at time T
@@ -179,8 +286,8 @@ export default class GameScene extends Phaser.Scene {
               this.keyVisuals[keyReleased].clearTint();
             }
             
-            // Clean up
-            note.destroy();
+            // Clean up - return to pool instead of destroying
+            this.releaseNote(note);
             this.fallingKeys.splice(i, 1);
             break;
           } else {
@@ -221,32 +328,68 @@ export default class GameScene extends Phaser.Scene {
     this.totalNotes++;
 
     if (isHoldNote) {
-      const holdBar = this.add.rectangle(lane.x, 0, 20, 100, 0xffffff);
+      // Use object pool for hold notes
+      const holdBar = this.holdNotePool.acquire();
+      holdBar.setPosition(lane.x, 0);
+      holdBar.setSize(20, 100);
+      holdBar.setFillStyle(0xffffff);
+      holdBar.setOrigin(0.5, 0);
+      holdBar.setDepth(10);
+      holdBar.setVisible(true);
+      holdBar.setActive(true);
+      
+      // Store note properties
       holdBar.keyType = key;
       holdBar.isHold = true;
       holdBar.held = false;
-      holdBar.holdDuration = duration; // Store required hold duration
-      holdBar.holdStartTime = null; // Will be set when player starts holding
-      holdBar.originalColor = 0xffffff; // Store original color
-      holdBar.setOrigin(0.5, 0); // Top center
-      holdBar.setDepth(10); // Make sure it's on top
+      holdBar.holdDuration = duration;
+      holdBar.holdStartTime = null;
+      holdBar.originalColor = 0xffffff;
+      holdBar.pooled = true; // Mark as pooled for cleanup
+      
       this.fallingKeys.push(holdBar);
-      if (this.totalNotes <= 5) {
-        console.log(`[GameScene] Spawned HOLD note: ${key} (note #${this.totalNotes}) at x=${lane.x}, y=0, duration=${duration}s`);
-        console.log(`[GameScene] HoldBar visible: ${holdBar.visible}, alpha: ${holdBar.alpha}`);
-      }
     } else {
-      const keySprite = this.add.image(lane.x, 0, lane.sprite);
+      // Use object pool for regular notes
+      const keySprite = this.notePools[key].acquire();
+      keySprite.setPosition(lane.x, 0);
+      keySprite.setOrigin(0.5, 0.5);
+      keySprite.setDepth(10);
+      keySprite.setVisible(true);
+      keySprite.setActive(true);
+      
+      // Store note properties
       keySprite.keyType = key;
       keySprite.isHold = false;
       keySprite.held = false;
-      keySprite.setOrigin(0.5, 0.5); // Center the sprite
-      keySprite.setDepth(10); // Make sure it's on top
+      keySprite.pooled = true; // Mark as pooled for cleanup
+      
       this.fallingKeys.push(keySprite);
-      if (this.totalNotes <= 5) {
-        console.log(`[GameScene] Spawned note: ${key} (note #${this.totalNotes}) at x=${lane.x}, y=0`);
-        console.log(`[GameScene] Sprite visible: ${keySprite.visible}, alpha: ${keySprite.alpha}, scale: ${keySprite.scaleX}`);
+    }
+  }
+  
+  /**
+   * Release a note back to its pool
+   */
+  releaseNote(note) {
+    if (note.pooled) {
+      if (note.isHold) {
+        this.holdNotePool.release(note);
+      } else {
+        this.notePools[note.keyType]?.release(note);
       }
+    } else {
+      // Fallback for non-pooled notes (shouldn't happen, but safety check)
+      note.destroy();
+    }
+  }
+
+  shutdown() {
+    // Cleanup: Release all pooled objects when scene shuts down
+    if (this.holdNotePool) {
+      this.holdNotePool.releaseAll();
+    }
+    if (this.notePools) {
+      Object.values(this.notePools).forEach(pool => pool.releaseAll());
     }
   }
 
@@ -258,25 +401,31 @@ export default class GameScene extends Phaser.Scene {
       console.log(`[GameScene] startTime was 0, setting to: ${this.startTime}`);
     }
 
-    // Calculate accurate time elapsed (in seconds)
-    let elapsedTime = (this.time.now - this.startTime) / 1000; 
+    // Calculate accurate time elapsed (in seconds) - cache calculation
+    const currentTime = this.time.now;
+    const elapsedTime = (currentTime - this.startTime) / 1000; 
 
     // Spawn notes when their spawn time arrives
-    // Note spawn time = note hit time - FALL_TIME
-    // This ensures notes arrive at judgment line at the correct time
-    let spawnedThisFrame = 0;
-    if (!this.songData || !Array.isArray(this.songData)) {
-      if (this.time.now % 2000 < delta) { // Log every ~2 seconds
-        console.error(`[GameScene] songData is invalid in update loop!`, this.songData);
+    // Performance optimization: Cache songData and FALL_TIME
+    const songData = this.songData;
+    const fallTime = this.FALL_TIME;
+    
+    if (!songData || !Array.isArray(songData)) {
+      if (currentTime % 2000 < delta) { // Log every ~2 seconds
+        console.error(`[GameScene] songData is invalid in update loop!`, songData);
       }
       return;
     }
     
+    // Spawn notes - optimized loop
+    const songDataLength = songData.length;
+    let spawnedThisFrame = 0;
+    
     while (
-      this.currentNoteIndex < this.songData.length &&
-      (this.songData[this.currentNoteIndex].time - this.FALL_TIME) <= elapsedTime
+      this.currentNoteIndex < songDataLength &&
+      (songData[this.currentNoteIndex].time - fallTime) <= elapsedTime
     ) {
-      let noteData = this.songData[this.currentNoteIndex];
+      const noteData = songData[this.currentNoteIndex];
       this.spawnKey(noteData.key, noteData.hold, noteData.duration || 0);
       this.currentNoteIndex++;
       spawnedThisFrame++;
@@ -287,62 +436,94 @@ export default class GameScene extends Phaser.Scene {
       console.log(`[GameScene] Spawned ${spawnedThisFrame} note(s) at elapsedTime=${elapsedTime.toFixed(3)}s, currentIndex=${this.currentNoteIndex}/${this.songData.length}`);
     }
     
-    // Debug: Log if we're not spawning when we should
-    if (this.currentNoteIndex < this.songData.length && spawnedThisFrame === 0) {
-      const nextNoteTime = this.songData[this.currentNoteIndex].time;
-      const nextSpawnTime = nextNoteTime - this.FALL_TIME;
-      if (this.time.now % 2000 < delta) { // Log every ~2 seconds
+    // Debug: Log if we're not spawning when we should (only in debug mode)
+    if (this.currentNoteIndex < songDataLength && spawnedThisFrame === 0) {
+      const nextNoteTime = songData[this.currentNoteIndex].time;
+      const nextSpawnTime = nextNoteTime - fallTime;
+      if (currentTime % 2000 < delta) { // Log every ~2 seconds
         console.log(`[GameScene] Waiting to spawn note ${this.currentNoteIndex}: nextSpawnTime=${nextSpawnTime.toFixed(3)}s, elapsedTime=${elapsedTime.toFixed(3)}s, diff=${(nextSpawnTime - elapsedTime).toFixed(3)}s`);
       }
     }
 
     // Move falling notes using time-based movement (frame-rate independent)
-    // delta is in milliseconds, convert to seconds: delta / 1000
+    // Performance optimization: Cache values to reduce property lookups
+    const pixelsPerSecond = this.PIXELS_PER_SECOND;
+    const screenHeight = this.screenHeight;
+    const cullMargin = this.cullMargin;
+    const judgmentY = this.JUDGMENT_Y;
+    
+    // Pre-calculate movement delta once
     const deltaSeconds = delta / 1000;
-    for (let i = 0; i < this.fallingKeys.length; i++) {
-      let key = this.fallingKeys[i];
-      const oldY = key.y;
-      key.y += this.PIXELS_PER_SECOND * deltaSeconds;
+    const movementDelta = pixelsPerSecond * deltaSeconds;
+    
+    // Use reverse iteration for safe removal during loop
+    for (let i = this.fallingKeys.length - 1; i >= 0; i--) {
+      const key = this.fallingKeys[i];
+      
+      // Update position for all notes (needed for collision detection)
+      key.y += movementDelta;
+      
+      // Update hold bar if it exists
       if (key.isHold && key.holdBar) {
-        key.holdBar.y += this.PIXELS_PER_SECOND * deltaSeconds;
+        key.holdBar.y += movementDelta;
       }
       
-      // Visual feedback for held notes - pulse effect while holding
-      if (key.isHold && key.held && key.holdStartTime) {
-        const holdProgress = (this.time.now - key.holdStartTime) / 1000; // seconds held
+      // Culling: Hide notes that are far off-screen to reduce rendering
+      const isOffScreen = key.y < -cullMargin || key.y > screenHeight + cullMargin;
+      if (isOffScreen && key.visible) {
+        key.setVisible(false);
+        if (key.isHold && key.holdBar) {
+          key.holdBar.setVisible(false);
+        }
+      } else if (!isOffScreen && !key.visible) {
+        key.setVisible(true);
+        if (key.isHold && key.holdBar) {
+          key.holdBar.setVisible(true);
+        }
+      }
+      
+      // Visual feedback for held notes - pulse effect while holding (only if visible)
+      if (!isOffScreen && key.isHold && key.held && key.holdStartTime) {
+        const holdProgress = (currentTime - key.holdStartTime) / 1000;
         const progressRatio = Math.min(holdProgress / key.holdDuration, 1.0);
         
         // Pulse effect: oscillate between bright green and slightly dimmer
-        const pulse = Math.sin(holdProgress * 10) * 0.3 + 0.7; // Oscillates between 0.4 and 1.0
+        const pulse = Math.sin(holdProgress * 10) * 0.3 + 0.7;
         const greenIntensity = Math.floor(255 * pulse);
         key.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0));
         
         // Scale effect to show progress
-        const scaleY = 1.0 + (progressRatio * 0.2); // Grow slightly as held
+        const scaleY = 1.0 + (progressRatio * 0.2);
         key.setScale(1.0, scaleY);
-      }
-      
-      // Debug: Log movement for first note
-      if (i === 0 && this.fallingKeys.length > 0 && this.time.now % 500 < delta) {
-        console.log(`[GameScene] Note moving: y=${key.y.toFixed(1)} (was ${oldY.toFixed(1)}), speed=${this.PIXELS_PER_SECOND.toFixed(1)}px/s, delta=${deltaSeconds.toFixed(4)}s`);
       }
 
       // Remove notes that have passed the bottom of the screen
-      if (key.y > this.scale.height) {
+      if (key.y > screenHeight) {
         // If it's a hold note that was being held, it's a miss
         if (key.isHold && key.held) {
           this.showFeedback("Hold Miss", "#ff0000", key.keyType);
-          // Clear key visual tint if it was being held
           if (this.keyVisuals[key.keyType]) {
             this.keyVisuals[key.keyType].clearTint();
           }
         } else {
           this.showFeedback("Miss", "#ff0000", key.keyType);
         }
-        if (key.isHold && key.holdBar) key.holdBar.destroy();
-        key.destroy();
+        
+        // Track miss
+        this.missCount++;
+        
+        // End current combo and record it
+        if (this.currentStreak > 0 && this.currentComboStart) {
+          this.comboHistory.push(this.currentStreak);
+          this.currentComboStart = null;
+        }
+        
+        // Clean up - return to pool instead of destroying
+        if (key.isHold && key.holdBar) {
+          this.holdNotePool.release(key.holdBar);
+        }
+        this.releaseNote(key);
         this.fallingKeys.splice(i, 1);
-        i--;
         this.currentStreak = 0;
         this.failed = true;
       }
@@ -350,12 +531,28 @@ export default class GameScene extends Phaser.Scene {
 
     // Ensure Debrief Scene appears when the song ends
     if (!this.music.isPlaying || elapsedTime >= this.music.duration) {
+      // Record final combo if still active
+      if (this.currentStreak > 0 && this.currentComboStart) {
+        this.comboHistory.push(this.currentStreak);
+      }
+      
+      // Calculate average combo
+      const averageCombo = this.comboHistory.length > 0
+        ? this.comboHistory.reduce((a, b) => a + b, 0) / this.comboHistory.length
+        : 0;
+      
       this.scene.start("DebriefScene", {
         score: this.score,
         totalNotes: this.totalNotes,
         notesHit: this.notesHit,
         longestStreak: this.longestStreak,
+        averageCombo: Math.round(averageCombo * 10) / 10,
+        perfectCount: this.perfectCount,
+        goodCount: this.goodCount,
+        missCount: this.missCount,
         failed: this.failed,
+        song: this.currentSongId,
+        difficulty: this.currentDifficulty,
       });
     }
   }
@@ -426,9 +623,11 @@ export default class GameScene extends Phaser.Scene {
             if (distance < perfectMargin) {
               this.showFeedback("Perfect!", "#00ff00", keyPressed);
               this.score += 20;
+              this.perfectCount++;
             } else if (distance < goodMargin) {
               this.showFeedback("Good", "#ffff00", keyPressed);
               this.score += 10;
+              this.goodCount++;
             } else {
               continue;
             }
@@ -436,10 +635,16 @@ export default class GameScene extends Phaser.Scene {
             this.notesHit++;
             this.currentStreak++;
             if (this.currentStreak > this.longestStreak) this.longestStreak = this.currentStreak;
+            
+            // Track combo start
+            if (this.currentStreak === 1) {
+              this.currentComboStart = this.time.now;
+            }
 
             this.scoreText.setText("Score: " + this.score);
 
-            note.destroy();
+            // Return to pool instead of destroying
+            this.releaseNote(note);
             this.fallingKeys.splice(i, 1);
             break;
           }
