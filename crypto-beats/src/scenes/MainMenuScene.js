@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing } from "../utils/responsive.js";
 
 export default class MainMenuScene extends Phaser.Scene {
   constructor() {
@@ -6,26 +7,8 @@ export default class MainMenuScene extends Phaser.Scene {
   }
 
   create() {
-    const { width, height } = this.scale;
+    this.setupUI();
     
-    // Set background color as fallback
-    this.cameras.main.setBackgroundColor(0x000000);
-
-    // Try to load background image, with fallback
-    if (this.textures.exists("background")) {
-      this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
-    } else {
-      // Fallback: solid color background if image doesn't load
-      console.warn("Background image not found, using fallback color");
-      this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
-    }
-
-    this.add.text(width / 2, height / 4, "Crypto Beats", {
-        fontSize: "48px",
-        fill: "#ffffff",
-        fontStyle: "bold"
-    }).setOrigin(0.5);
-
     // Resume music if it's paused, otherwise play it
     if (this.sound.get("menuMusic")) {
         this.menuMusic = this.sound.get("menuMusic");
@@ -37,27 +20,76 @@ export default class MainMenuScene extends Phaser.Scene {
         this.menuMusic.play();
     }
 
-    let startButton = this.add.text(width / 2, height / 2, "Start Game", {
-        fontSize: "32px",
+    // Listen for resize events
+    this.scale.on('resize', this.handleResize, this);
+  }
+
+  setupUI() {
+    const { width, height } = this.scale;
+    
+    // Safety check: ensure scene is fully initialized
+    if (!this.cameras || !this.cameras.main) {
+      console.warn("[MainMenuScene] Scene not fully initialized, skipping setupUI");
+      return;
+    }
+    
+    // Clear existing UI if recreating
+    if (this.backgroundImage) this.backgroundImage.destroy();
+    if (this.backgroundRect) this.backgroundRect.destroy();
+    if (this.titleText) this.titleText.destroy();
+    if (this.startButton) this.startButton.destroy();
+    if (this.aboutButton) this.aboutButton.destroy();
+    
+    // Set background color as fallback
+    this.cameras.main.setBackgroundColor(0x000000);
+
+    // Try to load background image, with fallback
+    if (this.textures.exists("background")) {
+      this.backgroundImage = this.add.image(width / 2, height / 2, "background");
+      this.backgroundImage.setDisplaySize(width, height);
+    } else {
+      // Fallback: solid color background if image doesn't load
+      this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+    }
+
+    // Responsive title
+    const titleSize = getResponsiveTitleSize(width);
+    this.titleText = this.add.text(width / 2, height / 4, "Crypto Beats", {
+        fontSize: titleSize,
+        fill: "#ffffff",
+        fontStyle: "bold"
+    }).setOrigin(0.5);
+
+    // Responsive button sizing
+    const buttonSize = getResponsiveButtonSize(width, height);
+    const buttonSpacing = getResponsiveSpacing(80, height);
+
+    this.startButton = this.add.text(width / 2, height / 2, "Start Game", {
+        fontSize: buttonSize.fontSize,
         fill: "#ffffff",
         backgroundColor: "#008CBA",
-        padding: { x: 20, y: 10 }
+        padding: buttonSize.padding
     }).setOrigin(0.5).setInteractive();
 
-    startButton.on("pointerdown", () => {
+    this.startButton.on("pointerdown", () => {
         this.scene.start("SongSelectionScene");
         this.menuMusic.pause(); // Pause instead of stopping
     });
 
-    let aboutButton = this.add.text(width / 2, height / 2 + 80, "About Us", {
-        fontSize: "32px",
+    this.aboutButton = this.add.text(width / 2, height / 2 + buttonSpacing, "About Us", {
+        fontSize: buttonSize.fontSize,
         fill: "#ffffff",
         backgroundColor: "#555",
-        padding: { x: 20, y: 10 }
+        padding: buttonSize.padding
     }).setOrigin(0.5).setInteractive();
 
-    aboutButton.on("pointerdown", () => {
+    this.aboutButton.on("pointerdown", () => {
         this.scene.start("AboutUsScene");
     });
+  }
+
+  handleResize(gameSize) {
+    // Recreate UI with new dimensions
+    this.setupUI();
   }
 }

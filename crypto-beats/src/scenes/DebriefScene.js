@@ -1,4 +1,14 @@
 import Phaser from "phaser";
+import { getSongById } from "../config/songs.js";
+import { DIFFICULTY_CONFIG } from "../utils/difficultyManager.js";
+import { 
+  getResponsiveTitleSize, 
+  getResponsiveSubtitleSize, 
+  getResponsiveBodySize,
+  getResponsiveFontSize,
+  getResponsiveSpacing,
+  getResponsiveButtonSize
+} from "../utils/responsive.js";
 
 export default class DebriefScene extends Phaser.Scene {
   constructor() {
@@ -20,17 +30,42 @@ export default class DebriefScene extends Phaser.Scene {
   }
 
       create() {
+        this.setupUI();
+        // Listen for resize events
+        this.scale.on('resize', this.handleResize, this);
+      }
+
+      setupUI() {
         const { width, height } = this.scale;
+        
+        // Safety check: ensure scene is fully initialized
+        if (!this.cameras || !this.cameras.main) {
+          console.warn("[DebriefScene] Scene not fully initialized, skipping setupUI");
+          return;
+        }
+        
+        // Clear existing UI if recreating - destroy all children except background
+        const childrenToDestroy = [];
+        this.children.list.forEach(child => {
+          if (child !== this.backgroundImage && child !== this.backgroundRect) {
+            childrenToDestroy.push(child);
+          }
+        });
+        childrenToDestroy.forEach(child => child.destroy());
+        
+        if (this.backgroundImage) this.backgroundImage.destroy();
+        if (this.backgroundRect) this.backgroundRect.destroy();
         
         // Set background color as fallback
         this.cameras.main.setBackgroundColor(0x000000);
         
         // Background fills screen
         if (this.textures.exists("background")) {
-          this.add.image(width / 2, height / 2, "background").setDisplaySize(width, height);
+          this.backgroundImage = this.add.image(width / 2, height / 2, "background");
+          this.backgroundImage.setDisplaySize(width, height);
         } else {
           // Fallback: solid color background if image doesn't load
-          this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+          this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
         }
 
     const percentageHit = ((this.notesHit / this.totalNotes) * 100).toFixed(1);
@@ -38,43 +73,53 @@ export default class DebriefScene extends Phaser.Scene {
     const stars = this.calculateStars(percentageHit);
     const crowdReaction = this.getCrowdReaction(percentageHit);
 
+    // Responsive sizing
+    const titleSize = getResponsiveTitleSize(width);
+    const gradeSize = getResponsiveFontSize(72, width, 48, 96);
+    const subtitleSize = getResponsiveSubtitleSize(width);
+    const bodySize = getResponsiveBodySize(width);
+    const smallSize = getResponsiveFontSize(20, width, 16, 24);
+    const titleY = getResponsiveSpacing(60, height);
+    const gradeY = getResponsiveSpacing(120, height);
+    const scoreY = getResponsiveSpacing(200, height);
+
     // Title
-    const title = this.add.text(width / 2, 60, "Song Complete!", {
-      fontSize: "48px",
+    const title = this.add.text(width / 2, titleY, "Song Complete!", {
+      fontSize: titleSize,
       fill: "#ffffff",
       fontStyle: "bold",
       stroke: "#000000",
-      strokeThickness: 4
+      strokeThickness: Math.max(2, Math.round(4 * (width / 1920)))
     }).setOrigin(0.5);
 
     // Grade Display (Large)
-    const gradeText = this.add.text(width / 2, 120, grade, {
-      fontSize: "72px",
+    const gradeText = this.add.text(width / 2, gradeY, grade, {
+      fontSize: gradeSize,
       fill: this.getGradeColor(grade),
       fontStyle: "bold",
       stroke: "#000000",
-      strokeThickness: 6
+      strokeThickness: Math.max(3, Math.round(6 * (width / 1920)))
     }).setOrigin(0.5);
 
     // Score Section
-    const scoreY = 200;
     this.add.text(width / 2, scoreY, `Final Score: ${this.score.toLocaleString()}`, {
-      fontSize: "32px",
+      fontSize: subtitleSize,
       fill: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
     // Accuracy with percentage bar
-    const accuracyY = scoreY + 50;
-    this.add.text(width / 2 - 100, accuracyY, `Accuracy: ${percentageHit}%`, {
-      fontSize: "24px",
+    const accuracyY = scoreY + getResponsiveSpacing(50, height);
+    const accuracyLabelX = width / 2 - getResponsiveSpacing(100, width);
+    this.add.text(accuracyLabelX, accuracyY, `Accuracy: ${percentageHit}%`, {
+      fontSize: bodySize,
       fill: "#ffffff"
     }).setOrigin(0.5, 0.5);
     
-    // Accuracy bar
-    const barWidth = 300;
-    const barHeight = 20;
-    const barX = width / 2 + 50;
+    // Accuracy bar - responsive
+    const barWidth = getResponsiveSpacing(300, width);
+    const barHeight = getResponsiveSpacing(20, height);
+    const barX = width / 2 + getResponsiveSpacing(50, width);
     const accuracyBarBg = this.add.rectangle(barX, accuracyY, barWidth, barHeight, 0x333333, 1);
     const accuracyBar = this.add.rectangle(
       barX - barWidth / 2 + (barWidth * (percentageHit / 100)) / 2,
@@ -85,88 +130,93 @@ export default class DebriefScene extends Phaser.Scene {
       1
     );
 
-    // Statistics Grid
-    const statsY = accuracyY + 60;
-    const statsLeftX = width / 2 - 200;
-    const statsRightX = width / 2 + 200;
-    const statsSpacing = 35;
+    // Statistics Grid - responsive
+    const statsY = accuracyY + getResponsiveSpacing(60, height);
+    const statsLeftX = width / 2 - getResponsiveSpacing(200, width);
+    const statsRightX = width / 2 + getResponsiveSpacing(200, width);
+    const statsSpacing = getResponsiveSpacing(35, height);
+    const statValueSize = getResponsiveFontSize(22, width, 18, 26);
 
     // Left column
     this.add.text(statsLeftX, statsY, "Hit Breakdown:", {
-      fontSize: "20px",
+      fontSize: smallSize,
       fill: "#aaaaaa",
       fontStyle: "bold"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing, `Perfect: ${this.perfectCount}`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#00ff00"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing * 2, `Good: ${this.goodCount}`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#ffff00"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing * 3, `Miss: ${this.missCount}`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#ff0000"
     }).setOrigin(0, 0.5);
 
     // Right column
     this.add.text(statsRightX, statsY, "Combo Stats:", {
-      fontSize: "20px",
+      fontSize: smallSize,
       fill: "#aaaaaa",
       fontStyle: "bold"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing, `Longest: ${this.longestStreak}x`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#ffffff"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing * 2, `Average: ${this.averageCombo}x`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#ffffff"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing * 3, `Total Notes: ${this.totalNotes}`, {
-      fontSize: "22px",
+      fontSize: statValueSize,
       fill: "#ffffff"
     }).setOrigin(1, 0.5);
 
-    // Stars
-    const starsY = statsY + statsSpacing * 4 + 20;
+    // Stars - responsive
+    const starsY = statsY + statsSpacing * 4 + getResponsiveSpacing(20, height);
+    const starsSize = getResponsiveFontSize(36, width, 28, 48);
     this.add.text(width / 2, starsY, `⭐ Stars: ${"⭐".repeat(stars)}`, {
-      fontSize: "36px",
+      fontSize: starsSize,
       fill: "#ffcc00",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
-    // Crowd reaction
-    const reactionY = starsY + 50;
+    // Crowd reaction - responsive
+    const reactionY = starsY + getResponsiveSpacing(50, height);
     this.add.text(width / 2, reactionY, crowdReaction, {
-      fontSize: "24px",
+      fontSize: bodySize,
       fill: "#ffffff",
       fontStyle: "italic"
     }).setOrigin(0.5);
 
-    // Buttons
-    const buttonY = reactionY + 80;
-    const buttonSpacing = 80;
+    // Buttons - responsive
+    const buttonY = reactionY + getResponsiveSpacing(80, height);
+    const buttonSpacing = getResponsiveSpacing(80, width);
+    const buttonWidth = getResponsiveSpacing(150, width);
+    const buttonHeight = getResponsiveSpacing(50, height);
+    const buttonFontSize = getResponsiveFontSize(24, width, 18, 30);
 
     // Retry Button
     const retryButton = this.add.rectangle(
       width / 2 - buttonSpacing,
       buttonY,
-      150,
-      50,
+      buttonWidth,
+      buttonHeight,
       0x00aa00,
       1
     ).setInteractive();
 
     const retryText = this.add.text(width / 2 - buttonSpacing, buttonY, "Retry", {
-      fontSize: "24px",
+      fontSize: buttonFontSize,
       fill: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
@@ -190,14 +240,14 @@ export default class DebriefScene extends Phaser.Scene {
     const shareButton = this.add.rectangle(
       width / 2,
       buttonY,
-      150,
-      50,
+      buttonWidth,
+      buttonHeight,
       0x0088cc,
       1
     ).setInteractive();
 
     const shareText = this.add.text(width / 2, buttonY, "Share", {
-      fontSize: "24px",
+      fontSize: buttonFontSize,
       fill: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
@@ -218,14 +268,14 @@ export default class DebriefScene extends Phaser.Scene {
     const menuButton = this.add.rectangle(
       width / 2 + buttonSpacing,
       buttonY,
-      150,
-      50,
+      buttonWidth,
+      buttonHeight,
       0x555555,
       1
     ).setInteractive();
 
     const menuText = this.add.text(width / 2 + buttonSpacing, buttonY, "Menu", {
-      fontSize: "24px",
+      fontSize: buttonFontSize,
       fill: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
@@ -241,6 +291,11 @@ export default class DebriefScene extends Phaser.Scene {
     menuButton.on("pointerout", () => {
       menuButton.setFillStyle(0x555555, 1);
     });
+  }
+
+  handleResize(gameSize) {
+    // Recreate UI with new dimensions
+    this.setupUI();
   }
 
   calculateGrade(accuracy) {
