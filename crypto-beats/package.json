@@ -3,7 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "convert-midi": "python3 scripts/midi_to_json.py public/Aguado_Menuet_Aminor.mid public/music.json",
+    "convert-midi:custom": "python3 scripts/midi_to_json.py",
+    "validate-json": "python3 scripts/validate_json.py public/music.json",
+    "midi:convert": "npm run convert-midi && npm run validate-json"
   },
   "keywords": [],
   "author": "",

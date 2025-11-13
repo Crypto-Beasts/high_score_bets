@@ -1,5 +1,11 @@
 import mido
 import json
+import sys
+import os
+
+# Configuration
+HOLD_NOTE_THRESHOLD = 0.5  # seconds - notes longer than this are considered hold notes
+PRECISION = 3  # decimal places for rounding
 
 # Function to map MIDI notes to 'W', 'A', 'S', 'D'
 def map_midi_note_to_key(note):
@@ -16,7 +22,17 @@ def get_bpm_from_midi(mid):
                 return bpm
     return 120  # Default BPM
 
-def midi_to_json(midi_file, output_json):
+def midi_to_json(midi_file, output_json, hold_threshold=HOLD_NOTE_THRESHOLD, force=False, include_metadata=True):
+    """
+    Convert MIDI file to JSON format for rhythm game.
+    
+    Args:
+        midi_file: Path to input MIDI file
+        output_json: Path to output JSON file
+        hold_threshold: Duration threshold (seconds) for hold notes (default: 0.5)
+        force: If True, overwrite existing files without asking (default: False)
+        include_metadata: If True, include metadata in JSON output (default: True)
+    """
     mid = mido.MidiFile(midi_file)
     bpm = get_bpm_from_midi(mid)
     bps = bpm / 60  # Beats per second
@@ -26,6 +42,7 @@ def midi_to_json(midi_file, output_json):
     active_notes = {}  # Track note start times
     
     first_note_time = None  # Track the first note time to sync properly
+    last_note_time = None  # Track the last note time for duration calculation
 
     for track in mid.tracks:
         absolute_time = 0
@@ -41,24 +58,98 @@ def midi_to_json(midi_file, output_json):
                     duration = absolute_time - start_time
                     mapped_key = map_midi_note_to_key(msg.note)  # Map MIDI note to key
 
-                    # Adjust timing so first note starts at 0
-                    adjusted_time = ((start_time - first_note_time) / ticks_per_beat) / bps
+                    # Adjust timing so first note starts at 0, round to specified precision
+                    adjusted_time = round(((start_time - first_note_time) / ticks_per_beat) / bps, PRECISION)
+                    note_duration = round((duration / ticks_per_beat) / bps, PRECISION)
+                    
+                    # Track last note time for duration calculation
+                    note_end_time = adjusted_time + note_duration
+                    if last_note_time is None or note_end_time > last_note_time:
+                        last_note_time = note_end_time
+                    
+                    # Determine if this is a hold note based on duration
+                    is_hold = note_duration > hold_threshold
 
                     note_events.append({
                         "time": adjusted_time,
                         "key": mapped_key,
-                        "duration": (duration / ticks_per_beat) / bps
+                        "duration": note_duration,
+                        "hold": is_hold
                     })
 
     note_events.sort(key=lambda x: x["time"])  # Ensure correct timing
 
-    with open(output_json, "w") as f:
-        json.dump(note_events, f, indent=4)
+    # Calculate song duration (time of last note + its duration)
+    song_duration = round(last_note_time if last_note_time else 0, PRECISION)
     
-    print(f"Converted {midi_file} to {output_json} (BPM: {bpm})")
+    # Extract song title from filename
+    song_title = os.path.splitext(os.path.basename(midi_file))[0]
 
-# Example usage
-midi_to_json(r"C:\Users\el_li\OneDrive\Documents\MidiTest\public\Aguado_Menuet_Aminor.mid", "music.json")
+    # Check if output file exists and ask for confirmation (unless force is True)
+    if os.path.exists(output_json) and not force:
+        response = input(f"File '{output_json}' already exists. Overwrite? (yes/no): ")
+        if response.lower() not in ['yes', 'y']:
+            print("Conversion cancelled. File not overwritten.")
+            return None
+    
+    # Prepare output data
+    if include_metadata:
+        output_data = {
+            "metadata": {
+                "title": song_title,
+                "bpm": round(bpm, 2),
+                "duration": song_duration,
+                "totalNotes": len(note_events),
+                "holdThreshold": hold_threshold,
+                "version": "1.0"
+            },
+            "notes": note_events
+        }
+    else:
+        # Legacy format - just array of notes
+        output_data = note_events
+    
+    with open(output_json, "w") as f:
+        json.dump(output_data, f, indent=4)
+    
+    hold_count = sum(1 for note in note_events if note["hold"])
+    regular_count = len(note_events) - hold_count
+    
+    print(f"Converted {midi_file} to {output_json}")
+    print(f"  BPM: {bpm}")
+    print(f"  Duration: {song_duration}s")
+    print(f"  Total notes: {len(note_events)}")
+    print(f"  Regular notes: {regular_count}, Hold notes: {hold_count}")
+    print(f"  Hold threshold: {hold_threshold}s")
+    
+    return output_data
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python midi_to_json.py <input.mid> <output.json> [hold_threshold] [--force]")
+        print("  Example: python midi_to_json.py song.mid music.json")
+        print("  Example: python midi_to_json.py song.mid music.json 0.6")
+        print("  Example: python midi_to_json.py song.mid music.json 0.6 --force")
+        print("  --force: Overwrite existing files without asking for confirmation")
+        sys.exit(1)
+    
+    midi_file = sys.argv[1]
+    output_json = sys.argv[2]
+    
+    # Parse optional arguments
+    hold_threshold = HOLD_NOTE_THRESHOLD
+    force = False
+    
+    for arg in sys.argv[3:]:
+        if arg == '--force':
+            force = True
+        else:
+            try:
+                hold_threshold = float(arg)
+            except ValueError:
+                print(f"Warning: Ignoring unknown argument '{arg}'")
+    
+    midi_to_json(midi_file, output_json, hold_threshold, force)
 
 
 
