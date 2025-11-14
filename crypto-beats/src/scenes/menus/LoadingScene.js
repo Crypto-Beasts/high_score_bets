@@ -93,17 +93,14 @@ export default class LoadingScene extends Phaser.Scene {
       graphics.generateTexture('noteTrail', 8, 8);
       graphics.destroy();
       
-      // Load hit sounds (using simple tones - can be replaced with actual sound files)
-      // For now, we'll create them programmatically or use fallback
-      try {
-        // Try to load hit sounds if they exist
-        this.load.audio("hitPerfect", "/sounds/hitPerfect.mp3");
-        this.load.audio("hitGood", "/sounds/hitGood.mp3");
-        this.load.audio("hitMiss", "/sounds/hitMiss.mp3");
-      } catch (error) {
-        // Sounds don't exist, will be handled gracefully in GameScene
-        console.log("Hit sounds not found, will use fallback");
-      }
+      // Load hit sounds (optional - game works without them)
+      // Only load if files exist - gracefully handle missing files
+      // Note: These files don't exist yet, so we skip loading them
+      // The game will work fine without hit sounds (they're already handled gracefully in GameScene)
+      // Uncomment when sound files are added:
+      // this.load.audio("hitPerfect", "/sounds/hitPerfect.mp3");
+      // this.load.audio("hitGood", "/sounds/hitGood.mp3");
+      // this.load.audio("hitMiss", "/sounds/hitMiss.mp3");
     } catch (error) {
       logError("LoadingScene", error);
       this.loadErrors.push("Failed to load static assets");

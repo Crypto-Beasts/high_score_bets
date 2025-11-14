@@ -223,6 +223,26 @@ export default class GameScene extends Phaser.Scene {
       fill: "#fff" 
     });
 
+    // Combo counter - positioned below score
+    const comboY = scoreY + getResponsiveSpacing(35, height);
+    this.comboText = this.add.text(scoreX, comboY, "", {
+      fontSize: getResponsiveFontSize(20, width, 16, 24),
+      fill: "#ffff00",
+      fontStyle: "bold",
+      fontFamily: "'Orbitron', 'Arial', sans-serif"
+    }).setAlpha(0); // Hidden until combo starts
+
+    // Combo multiplier text (shows multiplier when active)
+    this.comboMultiplierText = this.add.text(scoreX, comboY + getResponsiveSpacing(30, height), "", {
+      fontSize: getResponsiveFontSize(16, width, 12, 20),
+      fill: "#00ff00",
+      fontStyle: "bold",
+      fontFamily: "'Orbitron', 'Arial', sans-serif"
+    }).setAlpha(0);
+
+    // Track last milestone reached to avoid duplicate effects
+    this.lastMilestone = 0;
+
     // Feedback Text (for "Perfect", "Good", "Miss")
     this.feedbackText = this.add.text(width / 2, height / 2, "", {
       fontSize: feedbackFontSize,
@@ -459,7 +479,13 @@ export default class GameScene extends Phaser.Scene {
             }
             
             this.showFeedback(feedbackText, feedbackColor, keyReleased);
-            this.score += score;
+            
+            // Apply combo multiplier to score
+            const comboMultiplier = this.getComboMultiplier(this.currentStreak);
+            const baseScore = score;
+            const multipliedScore = Math.floor(baseScore * comboMultiplier);
+            
+            this.score += multipliedScore;
             this.notesHit++;
             this.currentStreak++;
             if (this.currentStreak > this.longestStreak) {
@@ -484,6 +510,9 @@ export default class GameScene extends Phaser.Scene {
               }
             }
             
+            // Update combo display
+            this.updateComboDisplay(this.currentStreak);
+            
             this.updateScore(this.score);
             
             // Stop hold pulse and animate release
@@ -506,9 +535,13 @@ export default class GameScene extends Phaser.Scene {
             // Stop hold pulse and animate release with miss feedback
             this.stopHoldPulse(keyReleased);
             this.animateKeyPress(keyReleased, "miss", false);
-            
+
             this.currentStreak = 0;
+            this.lastMilestone = 0; // Reset milestone tracking
             this.failed = true;
+            
+            // Update combo display (will hide it)
+            this.updateComboDisplay(0);
           }
         }
       }
@@ -575,6 +608,8 @@ export default class GameScene extends Phaser.Scene {
       keySprite.pooled = true; // Mark as pooled for cleanup
       
       // Create trail effect for regular notes with theme colors
+      // Note: Particle emitters don't have a follow() method in Phaser 3
+      // We'll update the emitter position manually in the update loop
       keySprite.trail = this.add.particles(lane.x, 0, 'noteTrail', {
         speed: { min: 20, max: 40 },
         scale: { start: 0.3, end: 0 },
@@ -584,7 +619,6 @@ export default class GameScene extends Phaser.Scene {
         tint: this.themeColors.trail
       });
       keySprite.trail.setDepth(9); // Just behind the note
-      keySprite.trail.follow(keySprite);
       
       // Apply theme color tint to note sprite
       keySprite.setTint(this.themeColors.note);
@@ -728,6 +762,20 @@ export default class GameScene extends Phaser.Scene {
       this.scoreText.setPosition(scoreX, scoreY);
     }
     
+    // Update combo text position (responsive)
+    if (this.comboText) {
+      const scoreX = getResponsiveSpacing(20, width);
+      const scoreY = getResponsiveSpacing(20, height) + getResponsiveSpacing(35, height);
+      this.comboText.setPosition(scoreX, scoreY);
+    }
+    
+    // Update combo multiplier text position (responsive)
+    if (this.comboMultiplierText) {
+      const scoreX = getResponsiveSpacing(20, width);
+      const scoreY = getResponsiveSpacing(20, height) + getResponsiveSpacing(65, height);
+      this.comboMultiplierText.setPosition(scoreX, scoreY);
+    }
+    
     // Recalculate judgment line position (responsive)
     const newJudgmentY = height - getResponsiveSpacing(100, height);
     this.JUDGMENT_Y = newJudgmentY;
@@ -859,7 +907,8 @@ export default class GameScene extends Phaser.Scene {
     const fallTime = this.FALL_TIME;
     
     if (!songData || !Array.isArray(songData)) {
-      if (currentTime % 2000 < delta) { // Log every ~2 seconds
+      // Log error occasionally (not every frame)
+      if (this.time.now % 2000 < delta) { // Log every ~2 seconds
         console.error(`[GameScene] songData is invalid in update loop!`, songData);
       }
       return;
@@ -888,7 +937,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.currentNoteIndex < songDataLength && spawnedThisFrame === 0) {
       const nextNoteTime = songData[this.currentNoteIndex].time;
       const nextSpawnTime = nextNoteTime - fallTime;
-      if (currentTime % 2000 < delta) { // Log every ~2 seconds
+      // Only log occasionally to avoid spam (check every ~2 seconds)
+      if (this.time.now % 2000 < delta) {
         console.log(`[GameScene] Waiting to spawn note ${this.currentNoteIndex}: nextSpawnTime=${nextSpawnTime.toFixed(3)}s, elapsedTime=${elapsedTime.toFixed(3)}s, diff=${(nextSpawnTime - elapsedTime).toFixed(3)}s`);
       }
     }
@@ -911,6 +961,13 @@ export default class GameScene extends Phaser.Scene {
       // Update position for all notes (needed for collision detection)
       key.y += movementDelta;
       
+      // Update particle trail position if it exists (Phaser 3 doesn't have follow method)
+      // Particle emitters have x and y properties that can be set directly
+      if (key.trail) {
+        key.trail.x = key.x;
+        key.trail.y = key.y;
+      }
+      
       // Update hold bar if it exists
       if (key.isHold && key.holdBar) {
         key.holdBar.y += movementDelta;
@@ -932,7 +989,7 @@ export default class GameScene extends Phaser.Scene {
       
       // Visual feedback for held notes - pulse effect while holding (only if visible)
       if (!isOffScreen && key.isHold && key.held && key.holdStartTime) {
-        const holdProgress = (currentTime - key.holdStartTime) / 1000;
+        const holdProgress = (this.time.now - key.holdStartTime) / 1000;
         const progressRatio = Math.min(holdProgress / key.holdDuration, 1.0);
         
         // Pulse effect: oscillate between bright green and slightly dimmer
@@ -974,7 +1031,11 @@ export default class GameScene extends Phaser.Scene {
         this.releaseNote(key);
         this.fallingKeys.splice(i, 1);
         this.currentStreak = 0;
+        this.lastMilestone = 0; // Reset milestone tracking
         this.failed = true;
+        
+        // Update combo display (will hide it)
+        this.updateComboDisplay(0);
       }
     }
 
@@ -1259,8 +1320,207 @@ export default class GameScene extends Phaser.Scene {
     if (color.includes(perfectColorHex) || color.includes("00ff00") || color === "#00ff00") quality = "perfect";
     else if (color.includes(missColorHex) || color.includes("ff0000") || color === "#ff0000") quality = "miss";
     
+    // Add particle effects on perfect hits
+    if (quality === "perfect") {
+      this.createPerfectHitParticles(key);
+    }
+    
     // Use new animation system
     this.animateKeyPress(key, quality, false);
+  }
+
+  /**
+   * Create particle effects for perfect hits
+   * @param {string} key - The key that was pressed
+   */
+  createPerfectHitParticles(key) {
+    if (!this.keyLanes[key]) return;
+    
+    const { width, height } = this.scale;
+    const lane = this.keyLanes[key];
+    const particleY = this.JUDGMENT_Y;
+    
+    // Create burst of particles at judgment line
+    const particles = this.add.particles(lane.x, particleY, 'noteTrail', {
+      speed: { min: 50, max: 150 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 600,
+      quantity: 15,
+      tint: this.themeColors.perfect,
+      blendMode: Phaser.BlendModes.ADD
+    });
+    
+    // Destroy particles after animation
+    this.time.delayedCall(600, () => {
+      particles.destroy();
+    });
+  }
+
+  /**
+   * Update combo display with visual feedback
+   * @param {number} combo - Current combo count
+   */
+  updateComboDisplay(combo) {
+    if (combo === 0) {
+      // Hide combo display when combo is broken
+      this.tweens.add({
+        targets: this.comboText,
+        alpha: 0,
+        scaleX: 0.5,
+        scaleY: 0.5,
+        duration: 300,
+        ease: "Power2"
+      });
+      this.tweens.add({
+        targets: this.comboMultiplierText,
+        alpha: 0,
+        duration: 300
+      });
+      return;
+    }
+
+    // Show combo display
+    this.comboText.setText(`${combo}x COMBO`);
+    this.comboText.setAlpha(1);
+
+    // Calculate dynamic font size based on combo (grows with combo)
+    const { width } = this.scale;
+    const baseSize = getResponsiveFontSize(20, width, 16, 24);
+    const maxSize = getResponsiveFontSize(48, width, 36, 60);
+    // Scale from baseSize to maxSize based on combo (capped at 100x for max size)
+    const comboScale = Math.min(combo / 100, 1);
+    const dynamicSize = baseSize + (maxSize - baseSize) * comboScale;
+    this.comboText.setFontSize(dynamicSize);
+
+    // Animate combo text (pulse effect)
+    this.tweens.add({
+      targets: this.comboText,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      duration: 150,
+      yoyo: true,
+      ease: "Power2"
+    });
+
+    // Update combo multiplier display
+    const multiplier = this.getComboMultiplier(combo);
+    if (multiplier > 1) {
+      this.comboMultiplierText.setText(`${multiplier.toFixed(1)}x MULTIPLIER`);
+      this.comboMultiplierText.setAlpha(1);
+    } else {
+      this.comboMultiplierText.setAlpha(0);
+    }
+
+    // Check for milestone combos (10x, 50x, 100x)
+    this.checkMilestoneCombo(combo);
+  }
+
+  /**
+   * Get combo multiplier based on combo count
+   * @param {number} combo - Current combo count
+   * @returns {number} Multiplier value
+   */
+  getComboMultiplier(combo) {
+    if (combo >= 100) return 2.5;
+    if (combo >= 50) return 2.0;
+    if (combo >= 10) return 1.5;
+    return 1.0;
+  }
+
+  /**
+   * Check and trigger milestone combo effects
+   * @param {number} combo - Current combo count
+   */
+  checkMilestoneCombo(combo) {
+    const milestones = [10, 50, 100];
+    
+    for (const milestone of milestones) {
+      if (combo === milestone && this.lastMilestone < milestone) {
+        this.lastMilestone = milestone;
+        this.triggerMilestoneEffect(milestone);
+        break; // Only trigger one milestone per combo increase
+      }
+    }
+  }
+
+  /**
+   * Trigger visual effects for milestone combos
+   * @param {number} milestone - Milestone value (10, 50, or 100)
+   */
+  triggerMilestoneEffect(milestone) {
+    const { width, height } = this.scale;
+    
+    // Screen flash effect
+    const flash = this.add.rectangle(width / 2, height / 2, width, height, 0xffffff, 0);
+    flash.setDepth(999);
+    flash.setBlendMode(Phaser.BlendModes.ADD);
+    
+    // Flash animation
+    this.tweens.add({
+      targets: flash,
+      alpha: { from: 0, to: 0.3 },
+      duration: 100,
+      yoyo: true,
+      ease: "Power2",
+      onComplete: () => flash.destroy()
+    });
+
+    // Screen shake effect
+    const shakeIntensity = milestone === 100 ? 20 : milestone === 50 ? 15 : 10;
+    const shakeDuration = milestone === 100 ? 500 : milestone === 50 ? 400 : 300;
+    
+    this.cameras.main.shake(shakeDuration, shakeIntensity / 100);
+
+    // Milestone text popup
+    const milestoneText = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), 
+      `${milestone}x COMBO!`, {
+      fontSize: getResponsiveFontSize(64, width, 48, 80),
+      fill: "#ffff00",
+      fontStyle: "bold",
+      fontFamily: "'Orbitron', 'Arial', sans-serif",
+      stroke: "#000000",
+      strokeThickness: 4
+    }).setOrigin(0.5).setDepth(1000);
+
+    // Animate milestone text
+    milestoneText.setScale(0);
+    this.tweens.add({
+      targets: milestoneText,
+      scaleX: 1.5,
+      scaleY: 1.5,
+      duration: 300,
+      yoyo: true,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        this.tweens.add({
+          targets: milestoneText,
+          alpha: 0,
+          scaleX: 1.2,
+          scaleY: 1.2,
+          duration: 500,
+          delay: 1000,
+          ease: "Power2",
+          onComplete: () => milestoneText.destroy()
+        });
+      }
+    });
+
+    // Particle burst for milestone
+    const particleCount = milestone === 100 ? 50 : milestone === 50 ? 30 : 20;
+    const particles = this.add.particles(width / 2, height / 2, 'noteTrail', {
+      speed: { min: 100, max: 300 },
+      scale: { start: 1, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 1000,
+      quantity: particleCount,
+      tint: milestone === 100 ? 0xffd700 : milestone === 50 ? 0xff8800 : 0xffff00,
+      blendMode: Phaser.BlendModes.ADD
+    });
+
+    this.time.delayedCall(1000, () => {
+      particles.destroy();
+    });
   }
 
   handlePlayerInput(event) {
@@ -1306,21 +1566,26 @@ export default class GameScene extends Phaser.Scene {
           } else {
             // Regular note handling
             let quality = "good";
+            let baseScore = 0;
             if (distance < perfectMargin) {
               const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
               this.showFeedback("Perfect!", perfectColor, keyPressed);
-              this.score += 20;
+              baseScore = 20;
               this.perfectCount++;
               quality = "perfect";
             } else if (distance < goodMargin) {
               const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
               this.showFeedback("Good", goodColor, keyPressed);
-              this.score += 10;
+              baseScore = 10;
               this.goodCount++;
               quality = "good";
             } else {
               continue;
             }
+            
+            // Apply combo multiplier to score
+            const comboMultiplier = this.getComboMultiplier(this.currentStreak);
+            const multipliedScore = Math.floor(baseScore * comboMultiplier);
             
             // Animate key press with quality-based feedback
             this.animateKeyPress(keyPressed, quality, false);
@@ -1354,6 +1619,10 @@ export default class GameScene extends Phaser.Scene {
               this.currentComboStart = this.time.now;
             }
 
+            // Update combo display
+            this.updateComboDisplay(this.currentStreak);
+            
+            this.score += multipliedScore;
             this.updateScore(this.score);
 
             // Return to pool instead of destroying

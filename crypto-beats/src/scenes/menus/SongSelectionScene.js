@@ -162,11 +162,8 @@ export default class SongSelectionScene extends Phaser.Scene {
 
     // Highlight default (Normal)
     selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
-
-    // Get all available songs from config
-    const songs = getAllSongs();
     
-    // Song selection function
+    // Song selection function (songs already declared above for song count)
     const selectSong = (songId, cardContainer) => {
       if (this.selectedMusic) {
         this.selectedMusic.stop();
