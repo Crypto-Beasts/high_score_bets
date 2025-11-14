@@ -1,11 +1,18 @@
 import Phaser from "phaser";
-import LoadingScene from "./scenes/LoadingScene.js";
-import MainMenuScene from "./scenes/MainMenuScene.js";
-import GameScene from "./scenes/GameScene.js";
-import DebriefScene from "./scenes/DebriefScene.js";
-import SongSelectionScene from "./scenes/SongSelectionScene.js";
-import AboutUsScene from "./scenes/AboutUsScene.js";
-import UIOverlayScene from "./scenes/UIOverlayScene.js";
+// Gameplay scenes
+import GameScene from "./scenes/gameplay/GameScene.js";
+import DebriefScene from "./scenes/gameplay/DebriefScene.js";
+// Menu scenes
+import LoadingScene from "./scenes/menus/LoadingScene.js";
+import MainMenuScene from "./scenes/menus/MainMenuScene.js";
+import SongSelectionScene from "./scenes/menus/SongSelectionScene.js";
+import AboutUsScene from "./scenes/menus/AboutUsScene.js";
+// Settings scenes
+import AudioCalibrationScene from "./scenes/settings/AudioCalibrationScene.js";
+import ThemeSelectionScene from "./scenes/settings/ThemeSelectionScene.js";
+import AchievementsScene from "./scenes/settings/AchievementsScene.js";
+// UI scenes
+import UIOverlayScene from "./scenes/ui/UIOverlayScene.js";
 
 const config = {
   type: Phaser.AUTO,
@@ -17,7 +24,7 @@ const config = {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene, UIOverlayScene],
+  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene, AudioCalibrationScene, ThemeSelectionScene, AchievementsScene, UIOverlayScene],
 };
 
 const game = new Phaser.Game(config);

@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG } from "../utils/difficultyManager.js";
-import { getAllSongs, getSongById } from "../config/songs.js";
+import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager.js";
+import { getAllSongs, getSongById } from "../../config/songs.js";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -9,7 +9,7 @@ import {
   getResponsiveSpacing,
   getResponsivePadding,
   getResponsiveFontSize
-} from "../utils/responsive.js";
+} from "../../utils/ui/responsive.js";
 
 export default class SongSelectionScene extends Phaser.Scene {
   constructor() {
@@ -91,6 +91,16 @@ export default class SongSelectionScene extends Phaser.Scene {
       stroke: "#000000",
       strokeThickness: Math.max(2, Math.round(4 * (width / 1920)))
     }).setOrigin(0.5);
+    
+    // Song count display
+    const songs = getAllSongs();
+    const songCountText = this.add.text(width / 2, titleY + getResponsiveSpacing(40, height), 
+      `${songs.length} ${songs.length === 1 ? 'song' : 'songs'} available`, {
+      fontSize: getResponsiveFontSize(16, width, 12, 20),
+      fill: "#aaaaaa",
+      fontStyle: "italic"
+    }).setOrigin(0.5);
+    this.songCountText = songCountText;
 
     // Difficulty Selection Section
     const difficultyTitle = this.add.text(width / 2, difficultyTitleY, "Difficulty", {

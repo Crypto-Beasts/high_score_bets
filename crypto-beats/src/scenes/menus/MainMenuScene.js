@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing } from "../utils/responsive.js";
+import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing } from "../../utils/ui/responsive.js";
 
 export default class MainMenuScene extends Phaser.Scene {
   constructor() {
@@ -39,6 +39,9 @@ export default class MainMenuScene extends Phaser.Scene {
     if (this.titleText) this.titleText.destroy();
     if (this.startButton) this.startButton.destroy();
     if (this.aboutButton) this.aboutButton.destroy();
+    if (this.settingsButton) this.settingsButton.destroy();
+    if (this.themesButton) this.themesButton.destroy();
+    if (this.achievementsButton) this.achievementsButton.destroy();
     
     // Set background color as fallback
     this.cameras.main.setBackgroundColor(0x000000);
@@ -85,6 +88,42 @@ export default class MainMenuScene extends Phaser.Scene {
 
     this.aboutButton.on("pointerdown", () => {
         this.scene.start("AboutUsScene");
+    });
+
+    // Settings button for audio calibration
+    this.settingsButton = this.add.text(width / 2, height / 2 + buttonSpacing * 2, "Audio Calibration", {
+        fontSize: buttonSize.fontSize,
+        fill: "#ffffff",
+        backgroundColor: "#666",
+        padding: buttonSize.padding
+    }).setOrigin(0.5).setInteractive();
+
+    this.settingsButton.on("pointerdown", () => {
+        this.scene.start("AudioCalibrationScene");
+    });
+
+    // Color themes button
+    this.themesButton = this.add.text(width / 2, height / 2 + buttonSpacing * 3, "Color Themes", {
+        fontSize: buttonSize.fontSize,
+        fill: "#ffffff",
+        backgroundColor: "#666",
+        padding: buttonSize.padding
+    }).setOrigin(0.5).setInteractive();
+
+    this.themesButton.on("pointerdown", () => {
+        this.scene.start("ThemeSelectionScene");
+    });
+
+    // Achievements button
+    this.achievementsButton = this.add.text(width / 2, height / 2 + buttonSpacing * 4, "Achievements", {
+        fontSize: buttonSize.fontSize,
+        fill: "#ffffff",
+        backgroundColor: "#666",
+        padding: buttonSize.padding
+    }).setOrigin(0.5).setInteractive();
+
+    this.achievementsButton.on("pointerdown", () => {
+        this.scene.start("AchievementsScene");
     });
   }
 

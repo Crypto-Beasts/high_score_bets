@@ -1,9 +1,19 @@
 import Phaser from "phaser";
-import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty } from "../utils/difficultyManager.js";
-import { getSongById, getAllSongs } from "../config/songs.js";
-import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong } from "../utils/errorHandler.js";
-import { createNotePool, createHoldNotePool } from "../utils/objectPool.js";
-import { getResponsiveFontSize, getResponsiveSpacing } from "../utils/responsive.js";
+import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty } from "../../utils/game/difficultyManager.js";
+import { getSongById, getAllSongs } from "../../config/songs.js";
+import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong } from "../../utils/data/errorHandler.js";
+import { createNotePool, createHoldNotePool } from "../../utils/game/objectPool.js";
+import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive.js";
+import { 
+  getAudioOffset, 
+  getAccurateGameTime, 
+  isAudioReady, 
+  waitForAudioReady,
+  parseBPMChanges,
+  getCurrentBPM
+} from "../../utils/audio/audioSync.js";
+import { getThemeColors } from "../../utils/ui/colorThemes.js";
+import { checkAchievements, getAchievement } from "../../utils/game/achievements.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -122,7 +132,28 @@ export default class GameScene extends Phaser.Scene {
     console.log(`[GameScene] Song data loaded: ${this.songData.length} notes`);
     this.currentNoteIndex = 0;
     this.startTime = 0; // Track when the song starts
+    this.audioStartTime = 0; // Track when audio actually started playing
+    
+    // Get audio offset from user calibration
+    this.audioOffset = getAudioOffset();
+    if (this.audioOffset !== 0) {
+      console.log(`[GameScene] Using audio offset: ${this.audioOffset}ms`);
+    }
+    
+    // Parse BPM changes for variable BPM support
+    this.bpmChanges = [];
+    this.baseBPM = 120; // Default BPM
+    if (originalSongData && originalSongData.metadata) {
+      this.baseBPM = originalSongData.metadata.bpm || 120;
+      this.bpmChanges = parseBPMChanges(originalSongData.metadata);
+      if (this.bpmChanges.length > 0) {
+        console.log(`[GameScene] Variable BPM detected: ${this.bpmChanges.length} BPM changes`);
+      }
+    }
 
+    // Get theme colors
+    this.themeColors = getThemeColors();
+    
     // Set background color as fallback
     this.cameras.main.setBackgroundColor(0x000000);
     
@@ -130,10 +161,16 @@ export default class GameScene extends Phaser.Scene {
     if (this.textures.exists("background")) {
       this.backgroundImage = this.add.image(width / 2, height / 2, "background");
       this.backgroundImage.setDisplaySize(width, height);
+      this.backgroundImage.setAlpha(0.3); // Dim background for focus
     } else {
       // Fallback: solid color background if image doesn't load
       this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+      this.backgroundRect.setAlpha(0.3); // Dim background
     }
+    
+    // Add dark overlay for better focus on gameplay
+    this.dimOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.5);
+    this.dimOverlay.setDepth(0); // Behind everything
     
     // Listen for resize events - use both scene scale and game scale
     this.scale.on('resize', this.handleResize, this);
@@ -147,9 +184,9 @@ export default class GameScene extends Phaser.Scene {
     this.keyLanes = layout.lanes;
     this.gameplayLayout = layout; // Store for resize updates
 
-    // Judgment Line - Use gameplay area boundaries
+    // Judgment Line - Use gameplay area boundaries with theme color
     this.judgmentLine = this.add.graphics();
-    this.judgmentLine.lineStyle(4, 0xffffff, 1);
+    this.judgmentLine.lineStyle(4, this.themeColors.judgmentLine, 1);
     this.judgmentLine.beginPath();
     const marginX = Math.max(50, layout.gameplayStartX);
     const endX = Math.min(width - 50, layout.gameplayEndX);
@@ -171,6 +208,9 @@ export default class GameScene extends Phaser.Scene {
     this.missCount = 0;
     this.comboHistory = []; // Track all combos for average calculation
     this.currentComboStart = null;
+    
+    // Achievement tracking
+    this.comboMasterUnlocked = false; // Track if combo master was already unlocked this session
 
     // Responsive text sizing
     const scoreFontSize = getResponsiveFontSize(24, width, 18, 30);
@@ -227,6 +267,10 @@ export default class GameScene extends Phaser.Scene {
 
     // Music - use the selected song
     this.music = this.sound.add(songId);
+    
+    // Initialize audio ready state
+    this.audioReady = false;
+    this.musicStarted = false;
 
     // Calculate when to start music
     // If first note is at time T, we need to start music at (T - FALL_TIME) so note arrives at time T
@@ -234,42 +278,148 @@ export default class GameScene extends Phaser.Scene {
     const musicStartTime = Math.max(0, firstNoteTime - FALL_TIME); // Don't start before 0
     const delayBeforeMusicStart = musicStartTime * 1000; // Convert to milliseconds
 
-    // Start music immediately if delay is 0, otherwise use delayed call
-    // Set startTime immediately to scene time, then adjust when music actually starts
-    this.startTime = this.time.now;
-    
-    if (delayBeforeMusicStart <= 0) {
-      try {
-        this.music.play();
-        // Update startTime to actual music start time
-        this.startTime = this.time.now;
-        console.log(`[GameScene] Music started immediately. First note at ${firstNoteTime}s, ${this.songData.length} total notes`);
-        console.log(`[GameScene] Music isPlaying: ${this.music.isPlaying}, startTime: ${this.startTime}`);
-      } catch (error) {
-        console.error(`[GameScene] Error playing music:`, error);
-        // Start anyway for testing - use scene time as start time
-        this.startTime = this.time.now;
-        console.log(`[GameScene] Using fallback startTime: ${this.startTime}`);
+    // Wait for audio to be ready before starting
+    const startMusicWhenReady = async () => {
+      // Wait for audio to be ready (with timeout)
+      const ready = await waitForAudioReady(this.music, this, 5000);
+      
+      if (!ready) {
+        console.warn(`[GameScene] Audio not ready after timeout, starting anyway`);
       }
-    } else {
-      this.time.delayedCall(delayBeforeMusicStart, () => {
+      
+      // Set initial start time
+      this.startTime = this.time.now;
+      
+      const playMusic = () => {
         try {
-          this.music.play();
-          // Update startTime to actual music start time
-          this.startTime = this.time.now;
-          console.log(`[GameScene] Music started after ${delayBeforeMusicStart}ms delay. First note at ${firstNoteTime}s`);
-          console.log(`[GameScene] Music isPlaying: ${this.music.isPlaying}, startTime: ${this.startTime}`);
+          if (this.music && !this.music.isPlaying) {
+            this.music.play();
+            // Record actual audio start time for accurate timing
+            this.audioStartTime = Date.now();
+            this.musicStarted = true;
+            console.log(`[GameScene] Music started. First note at ${firstNoteTime}s, ${this.songData.length} total notes`);
+            console.log(`[GameScene] Audio offset: ${this.audioOffset}ms, Variable BPM: ${this.bpmChanges.length > 0 ? 'Yes' : 'No'}`);
+          }
         } catch (error) {
           console.error(`[GameScene] Error playing music:`, error);
-          this.startTime = this.time.now;
-          console.log(`[GameScene] Using fallback startTime: ${this.startTime}`);
+          // Fallback: use scene time as start time
+          this.audioStartTime = Date.now();
+          this.musicStarted = true;
+          console.log(`[GameScene] Using fallback audio start time`);
         }
-      });
-    }
+      };
+      
+      if (delayBeforeMusicStart <= 0) {
+        // Start immediately
+        playMusic();
+      } else {
+        // Delay start
+        this.time.delayedCall(delayBeforeMusicStart, playMusic);
+      }
+    };
+    
+    // Start the audio ready check
+    startMusicWhenReady();
 
     // Keyboard input
     this.input.keyboard.on("keydown", this.handlePlayerInput, this);
     this.input.keyboard.on("keyup", this.handleKeyRelease, this);
+    
+    // Pause state
+    this.isPaused = false;
+    this.pauseMenu = null;
+    
+    // Keyboard shortcut: Esc to pause/resume
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this.isPaused) {
+        this.resumeGame();
+      } else {
+        this.pauseGame();
+      }
+    });
+  }
+  
+  pauseGame() {
+    if (this.isPaused || !this.musicStarted) return;
+    
+    this.isPaused = true;
+    if (this.music && this.music.isPlaying) {
+      this.music.pause();
+    }
+    this.scene.pause();
+    
+    // Create pause menu overlay
+    this.createPauseMenu();
+  }
+  
+  resumeGame() {
+    if (!this.isPaused) return;
+    
+    this.isPaused = false;
+    if (this.music && this.music.isPaused) {
+      this.music.resume();
+    }
+    this.scene.resume();
+    
+    // Remove pause menu
+    if (this.pauseMenu) {
+      if (this.pauseMenu.overlay) this.pauseMenu.overlay.destroy();
+      if (this.pauseMenu.title) this.pauseMenu.title.destroy();
+      if (this.pauseMenu.resumeButton) this.pauseMenu.resumeButton.destroy();
+      if (this.pauseMenu.quitButton) this.pauseMenu.quitButton.destroy();
+      this.pauseMenu = null;
+    }
+  }
+  
+  createPauseMenu() {
+    const { width, height } = this.scale;
+    
+    // Dark overlay
+    const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+    
+    // Pause title
+    const titleSize = getResponsiveFontSize(48, width, 36, 60);
+    const title = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), "PAUSED", {
+      fontSize: titleSize,
+      fill: "#ffffff",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
+    
+    // Resume button
+    const buttonSize = getResponsiveFontSize(24, width, 18, 30);
+    const resumeButton = this.add.text(width / 2, height / 2, "Resume (ESC)", {
+      fontSize: buttonSize,
+      fill: "#ffffff",
+      backgroundColor: "#00aa00",
+      padding: { x: 20, y: 10 }
+    }).setOrigin(0.5).setInteractive();
+    
+    resumeButton.on("pointerdown", () => {
+      this.resumeGame();
+    });
+    
+    // Quit button
+    const quitButton = this.add.text(width / 2, height / 2 + getResponsiveSpacing(60, height), "Quit to Menu", {
+      fontSize: buttonSize,
+      fill: "#ffffff",
+      backgroundColor: "#aa0000",
+      padding: { x: 20, y: 10 }
+    }).setOrigin(0.5).setInteractive();
+    
+    quitButton.on("pointerdown", () => {
+      if (this.music) {
+        this.music.stop();
+      }
+      this.scene.start("MainMenuScene");
+    });
+    
+    // Store references
+    this.pauseMenu = {
+      overlay,
+      title,
+      resumeButton,
+      quitButton
+    };
   }
 
   handleKeyRelease(event) {
@@ -294,17 +444,17 @@ export default class GameScene extends Phaser.Scene {
           if (holdDuration >= (requiredDuration - durationTolerance) && distance < goodMargin) {
             // Successfully completed hold note
             let feedbackText = "Hold Complete!";
-            let feedbackColor = "#00ff00";
+            let feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
             let score = 30; // Hold notes worth more points
             
             // Check timing precision
             if (distance < perfectMargin && holdDuration >= requiredDuration) {
               feedbackText = "Perfect Hold!";
-              feedbackColor = "#00ff00";
+              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
               score = 40;
             } else if (holdDuration < requiredDuration) {
               feedbackText = "Hold Too Short";
-              feedbackColor = "#ffff00";
+              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
               score = 20;
             }
             
@@ -312,9 +462,29 @@ export default class GameScene extends Phaser.Scene {
             this.score += score;
             this.notesHit++;
             this.currentStreak++;
-            if (this.currentStreak > this.longestStreak) this.longestStreak = this.currentStreak;
+            if (this.currentStreak > this.longestStreak) {
+              this.longestStreak = this.currentStreak;
+              
+              // Check for Combo Master achievement (100x combo) during gameplay
+              if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
+                const totalSongs = getAllSongs().length;
+                const gameData = {
+                  accuracy: 0, // Not needed for combo check
+                  grade: '',
+                  difficulty: this.currentDifficulty,
+                  longestStreak: this.longestStreak,
+                  failed: false,
+                  song: this.currentSongId
+                };
+                const newlyUnlocked = checkAchievements(gameData, totalSongs);
+                if (newlyUnlocked.includes('combo_master')) {
+                  this.comboMasterUnlocked = true;
+                  this.showAchievementNotification('combo_master');
+                }
+              }
+            }
             
-            this.scoreText.setText("Score: " + this.score);
+            this.updateScore(this.score);
             
             // Stop hold pulse and animate release
             this.stopHoldPulse(keyReleased);
@@ -326,10 +496,11 @@ export default class GameScene extends Phaser.Scene {
             break;
           } else {
             // Hold was released too early or at wrong position
-            this.showFeedback("Hold Failed", "#ff0000", keyReleased);
+            const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
+            this.showFeedback("Hold Failed", missColor, keyReleased);
             note.held = false;
             note.holdStartTime = null;
-            note.setFillStyle(note.originalColor || 0xffffff);
+            note.setFillStyle(note.originalColor || this.themeColors.note);
             note.setScale(1.0, 1.0);
             
             // Stop hold pulse and animate release with miss feedback
@@ -371,7 +542,7 @@ export default class GameScene extends Phaser.Scene {
       const holdBar = this.holdNotePool.acquire();
       holdBar.setPosition(lane.x, 0);
       holdBar.setSize(holdBarWidth, holdBarHeight);
-      holdBar.setFillStyle(0xffffff);
+      holdBar.setFillStyle(this.themeColors.note);
       holdBar.setOrigin(0.5, 0);
       holdBar.setDepth(10);
       holdBar.setVisible(true);
@@ -383,7 +554,7 @@ export default class GameScene extends Phaser.Scene {
       holdBar.held = false;
       holdBar.holdDuration = duration;
       holdBar.holdStartTime = null;
-      holdBar.originalColor = 0xffffff;
+      holdBar.originalColor = this.themeColors.note;
       holdBar.pooled = true; // Mark as pooled for cleanup
       
       this.fallingKeys.push(holdBar);
@@ -403,6 +574,21 @@ export default class GameScene extends Phaser.Scene {
       keySprite.held = false;
       keySprite.pooled = true; // Mark as pooled for cleanup
       
+      // Create trail effect for regular notes with theme colors
+      keySprite.trail = this.add.particles(lane.x, 0, 'noteTrail', {
+        speed: { min: 20, max: 40 },
+        scale: { start: 0.3, end: 0 },
+        alpha: { start: 0.8, end: 0 },
+        lifespan: 300,
+        frequency: 50,
+        tint: this.themeColors.trail
+      });
+      keySprite.trail.setDepth(9); // Just behind the note
+      keySprite.trail.follow(keySprite);
+      
+      // Apply theme color tint to note sprite
+      keySprite.setTint(this.themeColors.note);
+      
       this.fallingKeys.push(keySprite);
     }
   }
@@ -411,6 +597,12 @@ export default class GameScene extends Phaser.Scene {
    * Release a note back to its pool
    */
   releaseNote(note) {
+    // Clean up trail effect if it exists
+    if (note.trail) {
+      note.trail.destroy();
+      note.trail = null;
+    }
+    
     if (note.pooled) {
       if (note.isHold) {
         this.holdNotePool.release(note);
@@ -555,10 +747,10 @@ export default class GameScene extends Phaser.Scene {
     this.keyLanes = layout.lanes;
     this.gameplayLayout = layout;
     
-    // Update judgment line position to match gameplay area
-    if (this.judgmentLine) {
-      this.judgmentLine.clear();
-      this.judgmentLine.lineStyle(4, 0xffffff, 1);
+      // Update judgment line position to match gameplay area (with theme color)
+      if (this.judgmentLine) {
+        this.judgmentLine.clear();
+        this.judgmentLine.lineStyle(4, this.themeColors.judgmentLine, 1);
       this.judgmentLine.beginPath();
       // Use gameplay area boundaries instead of screen edges
       const marginX = Math.max(50, layout.gameplayStartX);
@@ -640,6 +832,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // Don't update if music hasn't started yet or if paused
+    if (!this.musicStarted || this.isPaused) {
+      return;
+    }
+    
     // Ensure we have a valid startTime
     if (this.startTime === 0 || this.startTime === undefined) {
       // Use current time as fallback
@@ -647,9 +844,14 @@ export default class GameScene extends Phaser.Scene {
       console.log(`[GameScene] startTime was 0, setting to: ${this.startTime}`);
     }
 
-    // Calculate accurate time elapsed (in seconds) - cache calculation
-    const currentTime = this.time.now;
-    const elapsedTime = (currentTime - this.startTime) / 1000; 
+    // Calculate accurate game time using audio.currentTime when available
+    // This provides better synchronization than scene time alone
+    const elapsedTime = getAccurateGameTime(
+      this.music,
+      this.time.now, // Current scene time (for reference, but not used in fallback)
+      this.audioStartTime, // Date.now() timestamp when audio started
+      this.audioOffset
+    ); 
 
     // Spawn notes when their spawn time arrives
     // Performance optimization: Cache songData and FALL_TIME
@@ -746,12 +948,13 @@ export default class GameScene extends Phaser.Scene {
       // Remove notes that have passed the bottom of the screen
       if (key.y > screenHeight) {
         // If it's a hold note that was being held, it's a miss
+        const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
         if (key.isHold && key.held) {
-          this.showFeedback("Hold Miss", "#ff0000", key.keyType);
+          this.showFeedback("Hold Miss", missColor, key.keyType);
           this.stopHoldPulse(key.keyType);
           this.animateKeyPress(key.keyType, "miss", false);
         } else {
-          this.showFeedback("Miss", "#ff0000", key.keyType);
+          this.showFeedback("Miss", missColor, key.keyType);
           this.animateKeyPress(key.keyType, "miss", false);
         }
         
@@ -815,26 +1018,26 @@ export default class GameScene extends Phaser.Scene {
     const keyVisual = this.keyVisuals[key];
     const glow = this.keyGlows[key];
     
-    // Determine color and scale based on quality
+    // Determine color and scale based on quality (use theme colors)
     let tintColor, glowColor, scaleAmount;
     switch(quality) {
       case "perfect":
-        tintColor = 0x00ff00; // Bright green
-        glowColor = 0x00ff00;
+        tintColor = this.themeColors.perfect;
+        glowColor = this.themeColors.perfect;
         scaleAmount = 1.25; // Larger scale for perfect
         break;
       case "good":
-        tintColor = 0xffff00; // Yellow
-        glowColor = 0xffff00;
+        tintColor = this.themeColors.good;
+        glowColor = this.themeColors.good;
         scaleAmount = 1.15; // Medium scale for good
         break;
       case "miss":
-        tintColor = 0xff0000; // Red
-        glowColor = 0xff0000;
+        tintColor = this.themeColors.miss;
+        glowColor = this.themeColors.miss;
         scaleAmount = 1.1; // Smaller scale for miss
         break;
       default:
-        tintColor = 0xffffff; // White for general press
+        tintColor = this.themeColors.note; // Theme note color for general press
         glowColor = 0x00aaff; // Blue glow
         scaleAmount = 1.2;
     }
@@ -975,11 +1178,70 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  updateScore(newScore) {
+    // Animate score change
+    if (newScore !== this.lastScore) {
+      const scoreDiff = newScore - this.lastScore;
+      
+      // Update text
+      this.scoreText.setText("Score: " + newScore);
+      
+      // Animate score text (scale up then back)
+      this.tweens.add({
+        targets: this.scoreText,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        duration: 150,
+        yoyo: true,
+        ease: "Power2"
+      });
+      
+      // Show score gain indicator if significant
+      if (scoreDiff > 0) {
+        const { width, height } = this.scale;
+        const scoreX = getResponsiveSpacing(20, width);
+        const scoreY = getResponsiveSpacing(20, height);
+        const gainText = this.add.text(scoreX + 150, scoreY, `+${scoreDiff}`, {
+          fontSize: getResponsiveFontSize(18, width, 14, 22),
+          fill: Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba,
+          fontStyle: "bold"
+        });
+        
+        this.tweens.add({
+          targets: gainText,
+          y: scoreY - 30,
+          alpha: 0,
+          duration: 800,
+          ease: "Power2",
+          onComplete: () => gainText.destroy()
+        });
+      }
+      
+      this.lastScore = newScore;
+    }
+  }
+
   showFeedback(text, color, key) {
     // Text feedback
     this.feedbackText.setText(text);
     this.feedbackText.setColor(color);
     this.feedbackText.setAlpha(1);
+    
+    // Play hit sound based on feedback type
+    try {
+      if (text.includes("Perfect")) {
+        // Play perfect hit sound (high pitch beep)
+        this.sound.play("hitPerfect", { volume: 0.3 });
+      } else if (text.includes("Good")) {
+        // Play good hit sound (medium pitch beep)
+        this.sound.play("hitGood", { volume: 0.25 });
+      } else if (text.includes("Miss")) {
+        // Play miss sound (low pitch error sound)
+        this.sound.play("hitMiss", { volume: 0.2 });
+      }
+    } catch (error) {
+      // Sounds might not be loaded, ignore
+    }
   
     this.tweens.add({
       targets: this.feedbackText,
@@ -988,10 +1250,14 @@ export default class GameScene extends Phaser.Scene {
       ease: "Power2",
     });
   
-    // Determine quality from color
+    // Determine quality from color (use theme colors)
     let quality = "good";
-    if (color === "#00ff00") quality = "perfect";
-    else if (color === "#ff0000") quality = "miss";
+    const perfectColorHex = this.themeColors.perfect.toString(16).padStart(6, '0');
+    const missColorHex = this.themeColors.miss.toString(16).padStart(6, '0');
+    
+    // Compare colors (check if color string contains theme color hex or matches common patterns)
+    if (color.includes(perfectColorHex) || color.includes("00ff00") || color === "#00ff00") quality = "perfect";
+    else if (color.includes(missColorHex) || color.includes("ff0000") || color === "#ff0000") quality = "miss";
     
     // Use new animation system
     this.animateKeyPress(key, quality, false);
@@ -1018,15 +1284,17 @@ export default class GameScene extends Phaser.Scene {
               note.held = true;
               note.holdStartTime = this.time.now;
               
-              // Visual feedback: change color to green
-              note.setFillStyle(0x00ff00);
+              // Visual feedback: change color to theme perfect color
+              note.setFillStyle(this.themeColors.perfect);
               
               // Show feedback for starting the hold
               let quality = distance < perfectMargin ? "perfect" : "good";
               if (distance < perfectMargin) {
-                this.showFeedback("Hold Start!", "#00ff00", keyPressed);
+                const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
+                this.showFeedback("Hold Start!", perfectColor, keyPressed);
               } else {
-                this.showFeedback("Hold Start", "#ffff00", keyPressed);
+                const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
+                this.showFeedback("Hold Start", goodColor, keyPressed);
               }
               
               // Animate key press and start hold pulse
@@ -1039,12 +1307,14 @@ export default class GameScene extends Phaser.Scene {
             // Regular note handling
             let quality = "good";
             if (distance < perfectMargin) {
-              this.showFeedback("Perfect!", "#00ff00", keyPressed);
+              const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
+              this.showFeedback("Perfect!", perfectColor, keyPressed);
               this.score += 20;
               this.perfectCount++;
               quality = "perfect";
             } else if (distance < goodMargin) {
-              this.showFeedback("Good", "#ffff00", keyPressed);
+              const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
+              this.showFeedback("Good", goodColor, keyPressed);
               this.score += 10;
               this.goodCount++;
               quality = "good";
@@ -1057,14 +1327,34 @@ export default class GameScene extends Phaser.Scene {
 
             this.notesHit++;
             this.currentStreak++;
-            if (this.currentStreak > this.longestStreak) this.longestStreak = this.currentStreak;
+            if (this.currentStreak > this.longestStreak) {
+              this.longestStreak = this.currentStreak;
+              
+              // Check for Combo Master achievement (100x combo) during gameplay
+              if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
+                const totalSongs = getAllSongs().length;
+                const gameData = {
+                  accuracy: 0, // Not needed for combo check
+                  grade: '',
+                  difficulty: this.currentDifficulty,
+                  longestStreak: this.longestStreak,
+                  failed: false,
+                  song: this.currentSongId
+                };
+                const newlyUnlocked = checkAchievements(gameData, totalSongs);
+                if (newlyUnlocked.includes('combo_master')) {
+                  this.comboMasterUnlocked = true;
+                  this.showAchievementNotification('combo_master');
+                }
+              }
+            }
             
             // Track combo start
             if (this.currentStreak === 1) {
               this.currentComboStart = this.time.now;
             }
 
-            this.scoreText.setText("Score: " + this.score);
+            this.updateScore(this.score);
 
             // Return to pool instead of destroying
             this.releaseNote(note);
@@ -1079,5 +1369,93 @@ export default class GameScene extends Phaser.Scene {
         this.animateKeyPress(keyPressed, "miss", false);
       }
     }
+  }
+  
+  showAchievementNotification(achievementId) {
+    const achievement = getAchievement(achievementId);
+    if (!achievement) return;
+    
+    const { width, height } = this.scale;
+    
+    // Create notification in top-right corner
+    const notificationX = width - getResponsiveSpacing(220, width);
+    const notificationY = getResponsiveSpacing(100, height);
+    
+    // Background
+    const bg = this.add.rectangle(
+      notificationX,
+      notificationY,
+      getResponsiveSpacing(400, width),
+      getResponsiveSpacing(100, height),
+      0x1a1a2e,
+      0.95
+    );
+    bg.setStrokeStyle(3, 0x00ff00);
+    bg.setDepth(1000);
+    
+    // Icon
+    const icon = this.add.text(
+      notificationX - getResponsiveSpacing(150, width),
+      notificationY,
+      achievement.icon,
+      {
+        fontSize: getResponsiveFontSize(40, width, 30, 50)
+      }
+    ).setOrigin(0.5).setDepth(1001);
+    
+    // Title
+    const title = this.add.text(
+      notificationX,
+      notificationY - getResponsiveSpacing(20, height),
+      "Achievement!",
+      {
+        fontSize: getResponsiveFontSize(18, width, 14, 22),
+        fill: "#00ff00",
+        fontStyle: "bold",
+        fontFamily: "'Orbitron', 'Arial', sans-serif"
+      }
+    ).setOrigin(0.5).setDepth(1001);
+    
+    // Name
+    const name = this.add.text(
+      notificationX,
+      notificationY + getResponsiveSpacing(10, height),
+      achievement.name,
+      {
+        fontSize: getResponsiveFontSize(16, width, 12, 20),
+        fill: "#ffffff",
+        fontStyle: "bold"
+      }
+    ).setOrigin(0.5).setDepth(1001);
+    
+    // Animate in
+    bg.setAlpha(0);
+    icon.setAlpha(0);
+    title.setAlpha(0);
+    name.setAlpha(0);
+    
+    this.tweens.add({
+      targets: [bg, icon, title, name],
+      alpha: 1,
+      x: `-=${getResponsiveSpacing(20, width)}`,
+      duration: 500,
+      ease: "Back.easeOut"
+    });
+    
+    // Animate out
+    this.tweens.add({
+      targets: [bg, icon, title, name],
+      alpha: 0,
+      x: `+=${getResponsiveSpacing(20, width)}`,
+      duration: 500,
+      delay: 3000,
+      ease: "Power2",
+      onComplete: () => {
+        bg.destroy();
+        icon.destroy();
+        title.destroy();
+        name.destroy();
+      }
+    });
   }
 }

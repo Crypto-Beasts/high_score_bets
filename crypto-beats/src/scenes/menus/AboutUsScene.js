@@ -5,7 +5,7 @@ import {
   getResponsiveButtonSize,
   getResponsiveSpacing,
   getResponsiveFontSize
-} from "../utils/responsive.js";
+} from "../../utils/ui/responsive.js";
 
 export default class AboutUsScene extends Phaser.Scene {
   constructor() {

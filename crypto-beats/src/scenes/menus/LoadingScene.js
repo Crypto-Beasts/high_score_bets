@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { getAllSongs } from "../config/songs.js";
-import { logError, validateSongData } from "../utils/errorHandler.js";
+import { getAllSongs } from "../../config/songs.js";
+import { logError, validateSongData } from "../../utils/data/errorHandler.js";
 
 export default class LoadingScene extends Phaser.Scene {
   constructor() {
@@ -85,6 +85,25 @@ export default class LoadingScene extends Phaser.Scene {
       this.load.image("key_d", "/images/key_d.png");
       this.load.image("fullscreen", "/images/fullscreenButton.png");
       this.load.audio("menuMusic", "/sounds/generalMusic.mp3");
+      
+      // Create simple particle texture for note trails (white circle)
+      const graphics = this.add.graphics();
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillCircle(4, 4, 4);
+      graphics.generateTexture('noteTrail', 8, 8);
+      graphics.destroy();
+      
+      // Load hit sounds (using simple tones - can be replaced with actual sound files)
+      // For now, we'll create them programmatically or use fallback
+      try {
+        // Try to load hit sounds if they exist
+        this.load.audio("hitPerfect", "/sounds/hitPerfect.mp3");
+        this.load.audio("hitGood", "/sounds/hitGood.mp3");
+        this.load.audio("hitMiss", "/sounds/hitMiss.mp3");
+      } catch (error) {
+        // Sounds don't exist, will be handled gracefully in GameScene
+        console.log("Hit sounds not found, will use fallback");
+      }
     } catch (error) {
       logError("LoadingScene", error);
       this.loadErrors.push("Failed to load static assets");

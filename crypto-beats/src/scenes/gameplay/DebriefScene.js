@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { getSongById } from "../config/songs.js";
-import { DIFFICULTY_CONFIG } from "../utils/difficultyManager.js";
+import { getSongById, getAllSongs } from "../../config/songs.js";
+import { DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager.js";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -8,7 +8,13 @@ import {
   getResponsiveFontSize,
   getResponsiveSpacing,
   getResponsiveButtonSize
-} from "../utils/responsive.js";
+} from "../../utils/ui/responsive.js";
+import { 
+  checkAchievements, 
+  recordSongCompletion, 
+  getAchievement,
+  getAllAchievements 
+} from "../../utils/game/achievements.js";
 
 export default class DebriefScene extends Phaser.Scene {
   constructor() {
@@ -30,7 +36,43 @@ export default class DebriefScene extends Phaser.Scene {
   }
 
       create() {
+        // Record song completion for achievements
+        const percentageHit = parseFloat(((this.notesHit / this.totalNotes) * 100).toFixed(1));
+        const grade = this.calculateGrade(percentageHit);
+        
+        recordSongCompletion(
+          this.song,
+          this.difficulty,
+          percentageHit,
+          grade,
+          this.longestStreak
+        );
+        
+        // Check for achievements
+        const totalSongs = getAllSongs().length;
+        const gameData = {
+          accuracy: percentageHit,
+          grade: grade,
+          difficulty: this.difficulty,
+          longestStreak: this.longestStreak,
+          failed: this.failed,
+          song: this.song
+        };
+        
+        const newlyUnlocked = checkAchievements(gameData, totalSongs);
+        
+        // Store newly unlocked achievements for notification
+        this.newlyUnlockedAchievements = newlyUnlocked;
+        
         this.setupUI();
+        
+        // Show achievement notifications after a short delay
+        if (newlyUnlocked.length > 0) {
+          this.time.delayedCall(1000, () => {
+            this.showAchievementNotifications(newlyUnlocked);
+          });
+        }
+        
         // Listen for resize events
         this.scale.on('resize', this.handleResize, this);
       }
@@ -333,6 +375,106 @@ export default class DebriefScene extends Phaser.Scene {
     if (accuracy >= 40) return 2;
     if (accuracy >= 20) return 1;
     return 0;
+  }
+
+  showAchievementNotifications(achievementIds) {
+    const { width, height } = this.scale;
+    
+    achievementIds.forEach((achievementId, index) => {
+      const achievement = getAchievement(achievementId);
+      if (!achievement) return;
+      
+      // Delay each notification slightly
+      this.time.delayedCall(500 * index, () => {
+        // Create notification background
+        const notificationBg = this.add.rectangle(
+          width / 2, 
+          height / 2 - getResponsiveSpacing(100, height) + (index * getResponsiveSpacing(80, height)),
+          getResponsiveSpacing(400, width),
+          getResponsiveSpacing(80, height),
+          0x1a1a2e,
+          0.95
+        );
+        notificationBg.setStrokeStyle(3, 0x00ff00);
+        
+        // Achievement icon
+        const iconText = this.add.text(
+          width / 2 - getResponsiveSpacing(150, width),
+          height / 2 - getResponsiveSpacing(100, height) + (index * getResponsiveSpacing(80, height)),
+          achievement.icon,
+          {
+            fontSize: getResponsiveFontSize(48, width, 36, 60),
+          }
+        ).setOrigin(0.5);
+        
+        // Achievement title
+        const titleText = this.add.text(
+          width / 2,
+          height / 2 - getResponsiveSpacing(120, height) + (index * getResponsiveSpacing(80, height)),
+          `Achievement Unlocked!`,
+          {
+            fontSize: getResponsiveFontSize(24, width, 18, 30),
+            fill: "#00ff00",
+            fontStyle: "bold",
+            fontFamily: "'Orbitron', 'Arial', sans-serif"
+          }
+        ).setOrigin(0.5);
+        
+        // Achievement name
+        const nameText = this.add.text(
+          width / 2,
+          height / 2 - getResponsiveSpacing(90, height) + (index * getResponsiveSpacing(80, height)),
+          achievement.name,
+          {
+            fontSize: getResponsiveFontSize(20, width, 16, 24),
+            fill: "#ffffff",
+            fontStyle: "bold"
+          }
+        ).setOrigin(0.5);
+        
+        // Achievement description
+        const descText = this.add.text(
+          width / 2,
+          height / 2 - getResponsiveSpacing(70, height) + (index * getResponsiveSpacing(80, height)),
+          achievement.description,
+          {
+            fontSize: getResponsiveFontSize(16, width, 12, 20),
+            fill: "#aaaaaa"
+          }
+        ).setOrigin(0.5);
+        
+        // Animate notification in
+        notificationBg.setAlpha(0);
+        iconText.setAlpha(0);
+        titleText.setAlpha(0);
+        nameText.setAlpha(0);
+        descText.setAlpha(0);
+        
+        this.tweens.add({
+          targets: [notificationBg, iconText, titleText, nameText, descText],
+          alpha: 1,
+          duration: 500,
+          ease: "Power2"
+        });
+        
+        // Animate notification out after delay
+        this.tweens.add({
+          targets: [notificationBg, iconText, titleText, nameText, descText],
+          alpha: 0,
+          y: `-=${getResponsiveSpacing(50, height)}`,
+          duration: 500,
+          delay: 3000,
+          ease: "Power2",
+          onComplete: () => {
+            notificationBg.destroy();
+            iconText.destroy();
+            titleText.destroy();
+            nameText.destroy();
+            descText.destroy();
+          }
+        });
+      });
+    });
   }
 
   getCrowdReaction(accuracy) {
