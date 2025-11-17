@@ -1130,7 +1130,7 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       
-      // Visual feedback for held notes - tail continues falling naturally
+      // Visual feedback for held notes - tail gets "cut off" at judgment line
       if (!isOffScreen && key.isHold && key.held && key.holdStartTime && key.holdBar) {
         // Keep key sprite hidden
         key.setVisible(false);
@@ -1138,16 +1138,62 @@ export default class GameScene extends Phaser.Scene {
           key.trail.setVisible(false);
         }
         
-        // Tail continues falling naturally - just update position to follow the key
-        // No resizing or repositioning needed - let it fall as-is
-        key.holdBar.setPosition(key.x, key.y);
+        // Calculate original tail height
+        const originalTailHeight = this.calculateTailHeight(key.holdDuration || 0);
+        const holdBarWidth = getResponsiveSpacing(15, width);
         
-        // Pulse effect
-        const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
-        const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
-        const greenIntensity = Math.floor(255 * pulse);
-        key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
+        // The tail extends UPWARD from key.y (bottom of tail = key.y, top = key.y - originalTailHeight)
+        // When key.y > judgmentY, the bottom of tail is below the judgment line
+        // We need to show only the portion above the judgment line
+        
+        // Check if the key sprite (bottom of tail) has passed the judgment line
+        if (key.y > judgmentY) {
+          // Key has passed judgment line - "cut off" the tail at the line
+          // Calculate the top of the tail
+          const tailTop = key.y - originalTailHeight;
+          
+          // Check if any part of the tail is above the judgment line
+          if (tailTop < judgmentY) {
+            // Part of the tail is above the judgment line - calculate visible height
+            // Visible portion is from judgmentY (bottom) to tailTop (top)
+            const visibleHeight = judgmentY - tailTop;
+            
+            // Clamp to original tail height (shouldn't exceed it)
+            const clippedHeight = Math.min(visibleHeight, originalTailHeight);
+            
+            // Only show if there's a visible portion
+            if (clippedHeight > 0) {
+              // Resize tail to show only the portion above judgment line
+              key.holdBar.setSize(holdBarWidth, clippedHeight);
+              key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
+              // Position tail so its bottom is at the judgment line
+              key.holdBar.setPosition(key.x, judgmentY);
+              key.holdBar.setVisible(true);
+            } else {
+              // No visible portion - hide the tail
+              key.holdBar.setVisible(false);
+            }
+          } else {
+            // Entire tail is below the judgment line - hide it
+            key.holdBar.setVisible(false);
+          }
+        } else {
+          // Key hasn't reached judgment line yet - show full tail extending upward from key position
+          key.holdBar.setSize(holdBarWidth, originalTailHeight);
+          key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
+          key.holdBar.setPosition(key.x, key.y); // Position at key sprite
+          key.holdBar.setVisible(true);
+        }
+        
+        // Pulse effect - glowing green when held (only if visible)
+        if (key.holdBar.visible) {
+          const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
+          const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
+          const greenIntensity = Math.floor(255 * pulse);
+          key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
+        }
       }
+
 
       // Remove notes that have passed the bottom of the screen
       if (key.y > screenHeight) {
