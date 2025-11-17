@@ -41,6 +41,7 @@ export default class MainMenuScene extends Phaser.Scene {
     if (this.aboutButton) this.aboutButton.destroy();
     if (this.settingsButton) this.settingsButton.destroy();
     if (this.themesButton) this.themesButton.destroy();
+    if (this.multiplayerButton) this.multiplayerButton.destroy();
     if (this.achievementsButton) this.achievementsButton.destroy();
     
     // Set background color as fallback
@@ -114,8 +115,20 @@ export default class MainMenuScene extends Phaser.Scene {
         this.scene.start("ThemeSelectionScene");
     });
 
+    // Multiplayer button
+    this.multiplayerButton = this.add.text(width / 2, height / 2 + buttonSpacing * 4, "Multiplayer", {
+        fontSize: buttonSize.fontSize,
+        fill: "#ffffff",
+        backgroundColor: "#00aa00",
+        padding: buttonSize.padding
+    }).setOrigin(0.5).setInteractive();
+
+    this.multiplayerButton.on("pointerdown", () => {
+        this.scene.start("MultiplayerLobbyScene");
+    });
+
     // Achievements button
-    this.achievementsButton = this.add.text(width / 2, height / 2 + buttonSpacing * 4, "Achievements", {
+    this.achievementsButton = this.add.text(width / 2, height / 2 + buttonSpacing * 5, "Achievements", {
         fontSize: buttonSize.fontSize,
         fill: "#ffffff",
         backgroundColor: "#666",

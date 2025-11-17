@@ -2,10 +2,13 @@ import Phaser from "phaser";
 // Gameplay scenes
 import GameScene from "./scenes/gameplay/GameScene.js";
 import DebriefScene from "./scenes/gameplay/DebriefScene.js";
+import MultiplayerGameScene from "./scenes/gameplay/MultiplayerGameScene.js";
+import MultiplayerDebriefScene from "./scenes/gameplay/MultiplayerDebriefScene.js";
 // Menu scenes
 import LoadingScene from "./scenes/menus/LoadingScene.js";
 import MainMenuScene from "./scenes/menus/MainMenuScene.js";
 import SongSelectionScene from "./scenes/menus/SongSelectionScene.js";
+import MultiplayerLobbyScene from "./scenes/menus/MultiplayerLobbyScene.js";
 import AboutUsScene from "./scenes/menus/AboutUsScene.js";
 // Settings scenes
 import AudioCalibrationScene from "./scenes/settings/AudioCalibrationScene.js";
@@ -24,7 +27,7 @@ const config = {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, SongSelectionScene, AboutUsScene, AudioCalibrationScene, ThemeSelectionScene, AchievementsScene, UIOverlayScene],
+  scene: [LoadingScene, MainMenuScene, GameScene, DebriefScene, MultiplayerLobbyScene, MultiplayerGameScene, MultiplayerDebriefScene, SongSelectionScene, AboutUsScene, AudioCalibrationScene, ThemeSelectionScene, AchievementsScene, UIOverlayScene],
 };
 
 const game = new Phaser.Game(config);

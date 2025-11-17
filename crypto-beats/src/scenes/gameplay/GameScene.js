@@ -16,8 +16,13 @@ import { getThemeColors } from "../../utils/ui/colorThemes.js";
 import { checkAchievements, getAchievement } from "../../utils/game/achievements.js";
 
 export default class GameScene extends Phaser.Scene {
-  constructor() {
-    super({ key: "GameScene" });
+  constructor(config) {
+    // Accept config parameter to allow child classes to override the key
+    const sceneConfig = config || { key: "GameScene" };
+    if (!sceneConfig.key) {
+      sceneConfig.key = "GameScene";
+    }
+    super(sceneConfig);
   }
 
   create(data) {
@@ -453,26 +458,34 @@ export default class GameScene extends Phaser.Scene {
         const note = this.fallingKeys[i];
         
         if (note.keyType === keyReleased && note.isHold && note.held && note.holdStartTime) {
-          // Calculate how long the note was held
-          const holdDuration = (this.time.now - note.holdStartTime) / 1000; // in seconds
+          // Use audio time for accurate hold duration calculation
+          const currentAudioTime = this.getCurrentAudioTime();
+          const holdStartAudioTime = note.holdStartAudioTime;
+          const holdElapsed = currentAudioTime - holdStartAudioTime;
           const requiredDuration = note.holdDuration || 0;
+          const expectedEndTime = holdStartAudioTime + requiredDuration;
           
-          // Check if held long enough (with some tolerance)
+          // Check if hold was completed successfully using audio time
           const durationTolerance = 0.1; // 100ms tolerance
           const distance = Math.abs(note.y - this.JUDGMENT_Y);
           
-          if (holdDuration >= (requiredDuration - durationTolerance) && distance < goodMargin) {
-            // Successfully completed hold note
-            let feedbackText = "Hold Complete!";
-            let feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-            let score = 30; // Hold notes worth more points
-            
-            // Check timing precision
-            if (distance < perfectMargin && holdDuration >= requiredDuration) {
+          // Determine completion quality based on audio time
+          let feedbackText = "Hold Complete!";
+          let feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
+          let score = 30; // Hold notes worth more points
+          
+          if (currentAudioTime >= expectedEndTime - durationTolerance) {
+            // Successfully completed - check timing precision
+            if (distance < perfectMargin && currentAudioTime >= expectedEndTime) {
               feedbackText = "Perfect Hold!";
               feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
               score = 40;
-            } else if (holdDuration < requiredDuration) {
+            } else if (currentAudioTime >= expectedEndTime * 0.7) {
+              // At least 70% completion
+              feedbackText = "Hold Complete!";
+              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
+              score = 30;
+            } else {
               feedbackText = "Hold Too Short";
               feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
               score = 20;
@@ -519,18 +532,37 @@ export default class GameScene extends Phaser.Scene {
             this.stopHoldPulse(keyReleased);
             this.animateKeyRelease(keyReleased);
             
+            // Clean up hold bar
+            if (note.holdBar) {
+              this.holdNotePool.release(note.holdBar);
+              note.holdBar = null;
+            }
+            
             // Clean up - return to pool instead of destroying
             this.releaseNote(note);
             this.fallingKeys.splice(i, 1);
             break;
           } else {
-            // Hold was released too early or at wrong position
+            // Hold was released too early (before 70% completion)
             const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
             this.showFeedback("Hold Failed", missColor, keyReleased);
             note.held = false;
             note.holdStartTime = null;
-            note.setFillStyle(note.originalColor || this.themeColors.note);
-            note.setScale(1.0, 1.0);
+            note.holdStartAudioTime = null;
+            
+            // Revert tail to normal color if hold failed
+            // Key sprite stays hidden (doesn't reappear)
+            if (note.holdBar) {
+              // Revert to subtle opacity and normal color (Rock Band style)
+              const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+              note.holdBar.setFillStyle(tailColor.color, 0.7); // 70% opacity, normal color
+            }
+            
+            // Key sprite stays hidden - it doesn't reappear
+            note.setVisible(false);
+            if (note.trail) {
+              note.trail.setVisible(false);
+            }
             
             // Stop hold pulse and animate release with miss feedback
             this.stopHoldPulse(keyReleased);
@@ -571,26 +603,60 @@ export default class GameScene extends Phaser.Scene {
     const holdBarHeight = getResponsiveSpacing(100, height);
 
     if (isHoldNote) {
-      // Use object pool for hold notes
+      // Hold notes: key sprite at top + tail bar connecting to judgment line
+      const keySprite = this.notePools[key].acquire();
+      keySprite.setPosition(lane.x, 0);
+      keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
+      keySprite.setOrigin(0.5, 0.5);
+      keySprite.setDepth(10);
+      keySprite.setVisible(true);
+      keySprite.setActive(true);
+      
+      // Store note properties
+      keySprite.keyType = key;
+      keySprite.isHold = true;
+      keySprite.held = false;
+      keySprite.holdDuration = duration;
+      keySprite.holdStartTime = null;
+      keySprite.originalColor = this.themeColors.note;
+      keySprite.pooled = true; // Mark as pooled for cleanup
+      
+      // Apply theme color tint to note sprite
+      keySprite.setTint(this.themeColors.note);
+      
+      // Create trail effect (same as regular notes)
+      keySprite.trail = this.add.particles(lane.x, 0, 'noteTrail', {
+        speed: { min: 20, max: 40 },
+        scale: { start: 0.3, end: 0 },
+        alpha: { start: 0.8, end: 0 },
+        lifespan: 300,
+        frequency: 50,
+        tint: this.themeColors.trail
+      });
+      keySprite.trail.setDepth(9); // Just behind the note
+      
+      // Create hold bar tail - extends UPWARD from key sprite
+      // IMPORTANT: Tail must be behind the key sprite (like Rock Band - key in front, line behind)
+      // Tail height is based on hold duration - longer holds = longer tails
       const holdBar = this.holdNotePool.acquire();
-      holdBar.setPosition(lane.x, 0);
-      holdBar.setSize(holdBarWidth, holdBarHeight);
-      holdBar.setFillStyle(this.themeColors.note);
-      holdBar.setOrigin(0.5, 0);
-      holdBar.setDepth(10);
+      const holdBarWidth = getResponsiveSpacing(15, width);
+      const tailHeight = this.calculateTailHeight(duration);
+      
+      // Position tail so it extends upward from the key sprite
+      holdBar.setPosition(lane.x, 0); // Position at key sprite (spawn position)
+      holdBar.setSize(holdBarWidth, tailHeight);
+      const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+      tailColor.alpha = 0.7;
+      holdBar.setFillStyle(tailColor.color, tailColor.alpha);
+      holdBar.setOrigin(0.5, 1); // Anchor at BOTTOM - extends UPWARD
+      holdBar.setDepth(3);
       holdBar.setVisible(true);
       holdBar.setActive(true);
       
-      // Store note properties
-      holdBar.keyType = key;
-      holdBar.isHold = true;
-      holdBar.held = false;
-      holdBar.holdDuration = duration;
-      holdBar.holdStartTime = null;
-      holdBar.originalColor = this.themeColors.note;
-      holdBar.pooled = true; // Mark as pooled for cleanup
+      keySprite.holdBar = holdBar;
+      keySprite.holdBarStartY = this.JUDGMENT_Y;
       
-      this.fallingKeys.push(holdBar);
+      this.fallingKeys.push(keySprite);
     } else {
       // Use object pool for regular notes
       const keySprite = this.notePools[key].acquire();
@@ -628,6 +694,61 @@ export default class GameScene extends Phaser.Scene {
   }
   
   /**
+   * Calculate tail height based on hold duration
+   * Tail should be visually proportional to hold duration, not absolute pixel distance
+   * @param {number} holdDuration - Hold duration in seconds
+   * @returns {number} Tail height in pixels
+   */
+  calculateTailHeight(holdDuration) {
+    // Use a reasonable maximum tail height and scale accordingly
+    const { height } = this.scale;
+    const MAX_TAIL_HEIGHT = getResponsiveSpacing(200, height); // Maximum tail height
+    const MAX_HOLD_DURATION = 3.0; // Maximum expected hold duration in seconds (cap at 3 seconds)
+    
+    // Scale tail height based on hold duration, capped at maximum
+    const proportion = Math.min(holdDuration / MAX_HOLD_DURATION, 1.0);
+    return MAX_TAIL_HEIGHT * proportion;
+  }
+
+  /**
+   * Get current audio time in seconds
+   * @returns {number} Current audio time
+   */
+  getCurrentAudioTime() {
+    return getAccurateGameTime(
+      this.music,
+      this.time.now,
+      this.audioStartTime,
+      this.audioOffset
+    );
+  }
+
+  /**
+   * Transform hold bar tail when player starts holding
+   * @param {Object} note - The note object (key sprite)
+   * @param {string} key - The key being held
+   */
+  transformToHoldBar(note, key) {
+    if (!note || !note.isHold || !note.holdBar) return;
+    
+    // Hide key sprite when pressed - it doesn't reappear
+    note.setVisible(false);
+    if (note.trail) {
+      note.trail.setVisible(false);
+    }
+    
+    // Store timing info
+    note.holdStartTime = this.time.now;
+    note.holdStartAudioTime = this.getCurrentAudioTime();
+    note.requiredHoldEndTime = note.holdStartAudioTime + (note.holdDuration || 0);
+    
+    // Change to active color (will pulse in update loop)
+    note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
+    
+    // Tail continues falling naturally - no repositioning or resizing needed
+  }
+  
+  /**
    * Release a note back to its pool
    */
   releaseNote(note) {
@@ -637,12 +758,16 @@ export default class GameScene extends Phaser.Scene {
       note.trail = null;
     }
     
+    // Clean up hold bar if it exists (for hold notes)
+    if (note.isHold && note.holdBar) {
+      this.holdNotePool.release(note.holdBar);
+      note.holdBar = null;
+    }
+    
     if (note.pooled) {
-      if (note.isHold) {
-        this.holdNotePool.release(note);
-      } else {
-        this.notePools[note.keyType]?.release(note);
-      }
+      // Hold notes now use regular note pools (they start as key sprites)
+      // So we always release to note pool, not hold note pool
+      this.notePools[note.keyType]?.release(note);
     } else {
       // Fallback for non-pooled notes (shouldn't happen, but safety check)
       note.destroy();
@@ -683,11 +808,11 @@ export default class GameScene extends Phaser.Scene {
     // Calculate lane positions (centered within gameplay area)
     const lanes = {
       W: { 
-        x: gameplayStartX + spacing, 
+        x: gameplayStartX + spacing * 2, // Swapped with A
         sprite: "key_w" 
       },
       A: { 
-        x: gameplayStartX + spacing * 2, 
+        x: gameplayStartX + spacing, // Swapped with W
         sprite: "key_a" 
       },
       S: { 
@@ -815,21 +940,27 @@ export default class GameScene extends Phaser.Scene {
           // Update note x position to new lane position
           note.x = this.keyLanes[note.keyType].x;
           
-          // Update note size if it's a sprite (regular note)
-          if (note.setDisplaySize && !note.isHold) {
+          // Update note size if it's a sprite (both regular and hold notes start as sprites)
+          if (note.setDisplaySize) {
             note.setDisplaySize(layout.keySize, layout.keySize);
           }
           
-          // Update hold note bar width if it's a hold note
-          if (note.isHold && note.setSize) {
-            const holdBarWidth = getResponsiveSpacing(20, width);
-            const currentHeight = note.height || getResponsiveSpacing(100, height);
-            note.setSize(holdBarWidth, currentHeight);
-          }
-          
-          // Update hold bar position if it exists
-          if (note.holdBar && note.holdBar.setPosition) {
-            note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.holdBar.y);
+          // Update hold bar tail if it exists
+          if (note.isHold && note.holdBar) {
+            const holdBarWidth = getResponsiveSpacing(15, width);
+            if (note.held) {
+              // Being held: tail continues falling naturally - just update position
+              note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
+              note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
+            } else {
+              // Falling: normal tail
+              const tailHeight = this.calculateTailHeight(note.holdDuration || 0);
+              note.holdBar.setSize(holdBarWidth, tailHeight);
+              note.holdBar.setOrigin(0.5, 1);
+              note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
+              const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+              note.holdBar.setFillStyle(tailColor.color, 0.7);
+            }
           }
         }
       });
@@ -945,6 +1076,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Move falling notes using time-based movement (frame-rate independent)
     // Performance optimization: Cache values to reduce property lookups
+    const { width, height } = this.scale;
     const pixelsPerSecond = this.PIXELS_PER_SECOND;
     const screenHeight = this.screenHeight;
     const cullMargin = this.cullMargin;
@@ -959,6 +1091,7 @@ export default class GameScene extends Phaser.Scene {
       const key = this.fallingKeys[i];
       
       // Update position for all notes (needed for collision detection)
+      // Hold notes continue scrolling even when held - the tail "unravels" as it passes the line
       key.y += movementDelta;
       
       // Update particle trail position if it exists (Phaser 3 doesn't have follow method)
@@ -968,9 +1101,19 @@ export default class GameScene extends Phaser.Scene {
         key.trail.y = key.y;
       }
       
-      // Update hold bar if it exists
-      if (key.isHold && key.holdBar) {
-        key.holdBar.y += movementDelta;
+      // Update hold bar tail for falling notes
+      if (key.isHold && key.holdBar && !key.held) {
+        // Tail extends upward from key sprite
+        const tailHeight = this.calculateTailHeight(key.holdDuration || 0);
+        const holdBarWidth = getResponsiveSpacing(15, width);
+        
+        key.holdBar.setSize(holdBarWidth, tailHeight);
+        key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
+        key.holdBar.setPosition(key.x, key.y); // Position at key sprite (bottom of tail at key position)
+        
+        // Maintain subtle opacity
+        const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+        key.holdBar.setFillStyle(tailColor.color, 0.7);
       }
       
       // Culling: Hide notes that are far off-screen to reduce rendering
@@ -987,30 +1130,44 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       
-      // Visual feedback for held notes - pulse effect while holding (only if visible)
-      if (!isOffScreen && key.isHold && key.held && key.holdStartTime) {
-        const holdProgress = (this.time.now - key.holdStartTime) / 1000;
-        const progressRatio = Math.min(holdProgress / key.holdDuration, 1.0);
+      // Visual feedback for held notes - tail continues falling naturally
+      if (!isOffScreen && key.isHold && key.held && key.holdStartTime && key.holdBar) {
+        // Keep key sprite hidden
+        key.setVisible(false);
+        if (key.trail) {
+          key.trail.setVisible(false);
+        }
         
-        // Pulse effect: oscillate between bright green and slightly dimmer
-        const pulse = Math.sin(holdProgress * 10) * 0.3 + 0.7;
+        // Tail continues falling naturally - just update position to follow the key
+        // No resizing or repositioning needed - let it fall as-is
+        key.holdBar.setPosition(key.x, key.y);
+        
+        // Pulse effect
+        const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
+        const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
         const greenIntensity = Math.floor(255 * pulse);
-        key.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0));
-        
-        // Scale effect to show progress
-        const scaleY = 1.0 + (progressRatio * 0.2);
-        key.setScale(1.0, scaleY);
+        key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
       }
 
       // Remove notes that have passed the bottom of the screen
       if (key.y > screenHeight) {
         // If it's a hold note that was being held, it's a miss
         const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-        if (key.isHold && key.held) {
+        if (key.isHold && key.held && key.holdBar) {
+          // Hold note was being held but passed the screen
           this.showFeedback("Hold Miss", missColor, key.keyType);
           this.stopHoldPulse(key.keyType);
           this.animateKeyPress(key.keyType, "miss", false);
+          
+          // Clean up hold bar
+          this.holdNotePool.release(key.holdBar);
+          key.holdBar = null;
+        } else if (key.isHold && !key.held) {
+          // Hold note was never pressed
+          this.showFeedback("Miss", missColor, key.keyType);
+          this.animateKeyPress(key.keyType, "miss", false);
         } else {
+          // Regular note miss
           this.showFeedback("Miss", missColor, key.keyType);
           this.animateKeyPress(key.keyType, "miss", false);
         }
@@ -1025,9 +1182,6 @@ export default class GameScene extends Phaser.Scene {
         }
         
         // Clean up - return to pool instead of destroying
-        if (key.isHold && key.holdBar) {
-          this.holdNotePool.release(key.holdBar);
-        }
         this.releaseNote(key);
         this.fallingKeys.splice(i, 1);
         this.currentStreak = 0;
@@ -1544,8 +1698,8 @@ export default class GameScene extends Phaser.Scene {
               note.held = true;
               note.holdStartTime = this.time.now;
               
-              // Visual feedback: change color to theme perfect color
-              note.setFillStyle(this.themeColors.perfect);
+              // Transform key sprite into hold bar
+              this.transformToHoldBar(note, keyPressed);
               
               // Show feedback for starting the hold
               let quality = distance < perfectMargin ? "perfect" : "good";

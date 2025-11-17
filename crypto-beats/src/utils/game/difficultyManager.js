@@ -10,26 +10,29 @@ export const DIFFICULTY_LEVELS = {
 
 export const DIFFICULTY_CONFIG = {
   [DIFFICULTY_LEVELS.EASY]: {
-    perfectMargin: 25,    // Larger timing window (66% larger than normal) - easier to hit perfect
-    goodMargin: 60,       // Much larger timing window (50% larger than normal) - easier to hit good
-    noteFilterRatio: 0.35, // Keep only 35% of notes (remove ~65%) - fewer notes overall
-    minNoteGap: 0.7,      // Minimum 0.7s gap between notes (55% more spacing) - more breathing room
+    // New Easy: Even easier than the old Easy mode
+    perfectMargin: 35,    // Very large timing window - very easy to hit perfect
+    goodMargin: 80,       // Huge timing window - very easy to hit good
+    noteFilterRatio: 0.25, // Keep only 25% of notes (remove ~75%) - much fewer notes
+    minNoteGap: 1.0,      // Minimum 1.0s gap between notes - lots of breathing room
     name: 'Easy',
     color: '#00ff00'
   },
   [DIFFICULTY_LEVELS.NORMAL]: {
-    perfectMargin: 15,    // Configurable, set to normal for now
-    goodMargin: 40,       // Configurable, set to normal for now
-    noteFilterRatio: 0.75, // Keep 75% of notes (remove ~25%)
-    minNoteGap: 0.275,    // Minimum 0.25-0.3s gap between notes
+    // Normal: Uses old Easy settings
+    perfectMargin: 25,    // Larger timing window (66% larger than old normal) - easier to hit perfect
+    goodMargin: 60,       // Much larger timing window (50% larger than old normal) - easier to hit good
+    noteFilterRatio: 0.35, // Keep only 35% of notes (remove ~65%) - fewer notes overall
+    minNoteGap: 0.7,      // Minimum 0.7s gap between notes (55% more spacing) - more breathing room
     name: 'Normal',
     color: '#ffff00'
   },
   [DIFFICULTY_LEVELS.HARD]: {
-    perfectMargin: 15,    // Configurable, set to normal for now
-    goodMargin: 40,        // Configurable, set to normal for now
-    noteFilterRatio: 1.0,  // Keep 100% of notes
-    minNoteGap: 0.1,       // Allow very close notes (0.1s or less)
+    // Hard: Uses old Normal settings
+    perfectMargin: 15,    // Standard timing window
+    goodMargin: 40,       // Standard timing window
+    noteFilterRatio: 0.75, // Keep 75% of notes (remove ~25%)
+    minNoteGap: 0.275,    // Minimum 0.25-0.3s gap between notes
     name: 'Hard',
     color: '#ff0000'
   }
@@ -57,11 +60,14 @@ export function adjustSongDataForDifficulty(songData, difficulty) {
   // Note: All hold notes are kept for all difficulties (no conversion/removal)
 
   // Filter notes based on ratio (keep every Nth note)
+  // IMPORTANT: Hold notes are always preserved regardless of ratio
   if (config.noteFilterRatio < 1.0) {
     const keepEvery = Math.round(1 / config.noteFilterRatio);
     filteredData = filteredData.filter((note, index) => {
       // Always keep first note
       if (index === 0) return true;
+      // Always keep hold notes
+      if (note.hold === true) return true;
       // Keep notes based on ratio
       return index % keepEvery === 0;
     });
@@ -71,14 +77,17 @@ export function adjustSongDataForDifficulty(songData, difficulty) {
   filteredData.sort((a, b) => a.time - b.time);
 
   // Remove notes that are too close together (enforce minimum gap)
+  // IMPORTANT: Hold notes are always preserved even if they violate minNoteGap
   if (config.minNoteGap > 0) {
     const result = [];
     for (let i = 0; i < filteredData.length; i++) {
       if (i === 0) {
         result.push(filteredData[i]); // Always keep first note
       } else {
+        const isHoldNote = filteredData[i].hold === true;
         const timeGap = filteredData[i].time - result[result.length - 1].time;
-        if (timeGap >= config.minNoteGap) {
+        // Always keep hold notes, or keep if gap is sufficient
+        if (isHoldNote || timeGap >= config.minNoteGap) {
           result.push(filteredData[i]);
         }
       }
