@@ -453,11 +453,14 @@ export default class GameScene extends Phaser.Scene {
     const goodMargin = this.goodMargin || 40;
 
     if (this.keyLanes[keyReleased]) {
+      let handledHoldNote = false;
+      
       // Find hold notes that are currently being held for this key
       for (let i = 0; i < this.fallingKeys.length; i++) {
         const note = this.fallingKeys[i];
         
         if (note.keyType === keyReleased && note.isHold && note.held && note.holdStartTime) {
+          handledHoldNote = true;
           // Use audio time for accurate hold duration calculation
           const currentAudioTime = this.getCurrentAudioTime();
           const holdStartAudioTime = note.holdStartAudioTime;
@@ -491,7 +494,7 @@ export default class GameScene extends Phaser.Scene {
               score = 20;
             }
             
-            this.showFeedback(feedbackText, feedbackColor, keyReleased);
+            this.showFeedback(feedbackText, feedbackColor, keyReleased, true);
             
             // Apply combo multiplier to score
             const comboMultiplier = this.getComboMultiplier(this.currentStreak);
@@ -545,7 +548,7 @@ export default class GameScene extends Phaser.Scene {
           } else {
             // Hold was released too early (before 70% completion)
             const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-            this.showFeedback("Hold Failed", missColor, keyReleased);
+            this.showFeedback("Hold Failed", missColor, keyReleased, true);
             note.held = false;
             note.holdStartTime = null;
             note.holdStartAudioTime = null;
@@ -564,9 +567,9 @@ export default class GameScene extends Phaser.Scene {
               note.trail.setVisible(false);
             }
             
-            // Stop hold pulse and animate release with miss feedback
+            // Animate key release (returns to normal state)
             this.stopHoldPulse(keyReleased);
-            this.animateKeyPress(keyReleased, "miss", false);
+            this.animateKeyRelease(keyReleased);
 
             this.currentStreak = 0;
             this.lastMilestone = 0; // Reset milestone tracking
@@ -574,6 +577,31 @@ export default class GameScene extends Phaser.Scene {
             
             // Update combo display (will hide it)
             this.updateComboDisplay(0);
+          }
+        }
+      }
+      
+      // If it's not a hold note, check if key is in pressed state and return it to normal
+      if (!handledHoldNote) {
+        const keyVisual = this.keyVisuals[keyReleased];
+        if (keyVisual) {
+          const currentScale = keyVisual.scaleX || 1.0;
+          // If key is in pressed state (scaled down), animate it back to normal
+          if (currentScale < 1.0) {
+            // Check if this key is currently being held for a hold note
+            let isKeyCurrentlyHeld = false;
+            for (let i = 0; i < this.fallingKeys.length; i++) {
+              const note = this.fallingKeys[i];
+              if (note.keyType === keyReleased && note.isHold && note.held && note.holdStartTime) {
+                isKeyCurrentlyHeld = true;
+                break;
+              }
+            }
+            
+            // Only release if it's not being held for a hold note
+            if (!isKeyCurrentlyHeld) {
+              this.animateKeyRelease(keyReleased);
+            }
           }
         }
       }
@@ -742,10 +770,11 @@ export default class GameScene extends Phaser.Scene {
     note.holdStartAudioTime = this.getCurrentAudioTime();
     note.requiredHoldEndTime = note.holdStartAudioTime + (note.holdDuration || 0);
     
-    // Change to active color (will pulse in update loop)
+    // Change to active color (glowing green while held)
     note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
     
     // Tail continues falling naturally - no repositioning or resizing needed
+    // The key visual is already in pressed state from animateKeyPress
   }
   
   /**
@@ -1201,21 +1230,39 @@ export default class GameScene extends Phaser.Scene {
         const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
         if (key.isHold && key.held && key.holdBar) {
           // Hold note was being held but passed the screen
-          this.showFeedback("Hold Miss", missColor, key.keyType);
+          this.showFeedback("Hold Miss", missColor, key.keyType, true);
           this.stopHoldPulse(key.keyType);
-          this.animateKeyPress(key.keyType, "miss", false);
+          this.animateKeyRelease(key.keyType);
           
           // Clean up hold bar
           this.holdNotePool.release(key.holdBar);
           key.holdBar = null;
-        } else if (key.isHold && !key.held) {
-          // Hold note was never pressed
-          this.showFeedback("Miss", missColor, key.keyType);
-          this.animateKeyPress(key.keyType, "miss", false);
         } else {
-          // Regular note miss
-          this.showFeedback("Miss", missColor, key.keyType);
-          this.animateKeyPress(key.keyType, "miss", false);
+          // Check if this key is currently being held for another note
+          let isKeyCurrentlyHeld = false;
+          for (let j = 0; j < this.fallingKeys.length; j++) {
+            const otherNote = this.fallingKeys[j];
+            if (otherNote.keyType === key.keyType && otherNote.isHold && otherNote.held && otherNote.holdStartTime) {
+              isKeyCurrentlyHeld = true;
+              break;
+            }
+          }
+          
+          if (key.isHold && !key.held) {
+            // Hold note was never pressed
+           this.showFeedback("Miss", missColor, key.keyType);
+            // Only animate if key is not currently being held
+            if (!isKeyCurrentlyHeld) {
+              this.animateMissFeedback(key.keyType); // Changed from animateKeyPress
+            }
+          } else {
+            // Regular note miss
+             this.showFeedback("Miss", missColor, key.keyType);
+            // Only animate if key is not currently being held
+            if (!isKeyCurrentlyHeld) {
+              this.animateMissFeedback(key.keyType); // Changed from animateKeyPress
+            }
+          }
         }
         
         // Track miss
@@ -1268,59 +1315,82 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Animate key press with scale and color feedback
-   * @param {string} key - The key that was pressed (W, A, S, D)
-   * @param {string} quality - "perfect", "good", or "miss"
-   * @param {boolean} isHold - Whether this is a hold note
-   */
+ * Animate key press with scale and color feedback
+ * @param {string} key - The key that was pressed (W, A, S, D)
+ * @param {string} quality - "perfect", "good", or "miss"
+ * @param {boolean} isHold - Whether this is a hold note
+ */
+
   animateKeyPress(key, quality = "good", isHold = false) {
+    // Hold notes are handled separately - skip them here
+    if (isHold) {
+      return;
+    }
+    
     if (!this.keyVisuals[key]) return;
     
     const keyVisual = this.keyVisuals[key];
     const glow = this.keyGlows[key];
     
-    // Determine color and scale based on quality (use theme colors)
-    let tintColor, glowColor, scaleAmount;
-    switch(quality) {
-      case "perfect":
-        tintColor = this.themeColors.perfect;
-        glowColor = this.themeColors.perfect;
-        scaleAmount = 1.25; // Larger scale for perfect
-        break;
-      case "good":
-        tintColor = this.themeColors.good;
-        glowColor = this.themeColors.good;
-        scaleAmount = 1.15; // Medium scale for good
-        break;
-      case "miss":
-        tintColor = this.themeColors.miss;
-        glowColor = this.themeColors.miss;
-        scaleAmount = 1.1; // Smaller scale for miss
-        break;
-      default:
-        tintColor = this.themeColors.note; // Theme note color for general press
-        glowColor = 0x00aaff; // Blue glow
-        scaleAmount = 1.2;
+    // Check if key is currently in pressed state (being held for a hold note)
+    const currentScale = keyVisual.scaleX || 1.0;
+    if (currentScale < 1.0) {
+      // Check if this key is currently being held for a hold note
+      let isKeyCurrentlyHeld = false;
+      for (let i = 0; i < this.fallingKeys.length; i++) {
+        const note = this.fallingKeys[i];
+        if (note.keyType === key && note.isHold && note.held && note.holdStartTime) {
+          isKeyCurrentlyHeld = true;
+          break;
+        }
+      }
+      // If key is being held, don't animate (would interfere with pressed state)
+      if (isKeyCurrentlyHeld) {
+        return;
+      }
     }
     
     // Stop any existing tweens on this key
     this.tweens.killTweensOf(keyVisual);
-    if (glow) this.tweens.killTweensOf(glow);
+    if (glow) {
+      this.tweens.killTweensOf(glow);
+    }
+  
+    // Determine color based on quality (use theme colors)
+    let tintColor, glowColor;
+    switch(quality) {
+      case "perfect":
+        tintColor = this.themeColors.perfect;
+        glowColor = this.themeColors.perfect;
+        break;
+      case "good":
+        tintColor = this.themeColors.good;
+        glowColor = this.themeColors.good;
+        break;
+      case "miss":
+        tintColor = this.themeColors.miss;
+        glowColor = this.themeColors.miss;
+        break;
+      default:
+        tintColor = this.themeColors.note;
+        glowColor = 0x00aaff;
+    }
     
     // Apply tint
     keyVisual.setTint(tintColor);
     
-    // Scale up animation with bounce
+    // For ALL notes: scale DOWN to pressed state (0.85)
     this.tweens.add({
       targets: keyVisual,
-      scaleX: scaleAmount,
-      scaleY: scaleAmount,
+      scaleX: 0.85,
+      scaleY: 0.85,
       duration: 100,
-      ease: "Back.easeOut",
+      ease: "Linear",
       yoyo: false,
+      // NO onComplete - key stays pressed until manually released
     });
     
-    // Glow effect - fade in then out
+    // Glow effect - fade in then out (remove yoyo)
     if (glow) {
       glow.setFillStyle(glowColor, 0.6);
       glow.setVisible(true);
@@ -1329,28 +1399,13 @@ export default class GameScene extends Phaser.Scene {
         alpha: 0.8,
         scale: 1.3,
         duration: 100,
-        ease: "Power2",
-        yoyo: true,
-        onComplete: () => {
+        ease: "Linear",
+        yoyo: false, // Remove yoyo - just fade out
+       /* onComplete: () => {
           glow.setVisible(false);
           glow.setAlpha(0);
           glow.setScale(1);
-        }
-      });
-    }
-    
-    // If not a hold note, scale back down after a delay
-    if (!isHold) {
-      this.tweens.add({
-        targets: keyVisual,
-        scaleX: 1.0,
-        scaleY: 1.0,
-        duration: 150,
-        delay: 100,
-        ease: "Power2",
-        onComplete: () => {
-          keyVisual.clearTint();
-        }
+        }*/
       });
     }
   }
@@ -1365,14 +1420,13 @@ export default class GameScene extends Phaser.Scene {
     const keyVisual = this.keyVisuals[key];
     const glow = this.keyGlows[key];
     
-    // Stop any pulsing animations
+    // Stop any existing animations
     this.tweens.killTweensOf(keyVisual);
     if (glow) {
       this.tweens.killTweensOf(glow);
-      glow.setVisible(false);
     }
     
-    // Scale back down smoothly
+    // Smoothly return to normal size and clear tint
     this.tweens.add({
       targets: keyVisual,
       scaleX: 1.0,
@@ -1383,45 +1437,76 @@ export default class GameScene extends Phaser.Scene {
         keyVisual.clearTint();
       }
     });
-  }
-  
-  /**
-   * Start pulsing animation for hold notes
-   * @param {string} key - The key being held
-   */
-  startHoldPulse(key) {
-    if (!this.keyVisuals[key]) return;
-    
-    const keyVisual = this.keyVisuals[key];
-    const glow = this.keyGlows[key];
-    
-    // Continuous pulsing scale
-    this.tweens.add({
-      targets: keyVisual,
-      scaleX: 1.1,
-      scaleY: 1.1,
-      duration: 300,
-      ease: "Sine.easeInOut",
-      yoyo: true,
-      repeat: -1 // Infinite repeat
-    });
-    
-    // Pulsing glow
+   
+    // Fade out glow smoothly
     if (glow) {
-      glow.setFillStyle(0x00ff00, 0.4);
-      glow.setVisible(true);
       this.tweens.add({
         targets: glow,
-        alpha: 0.6,
-        scale: 1.2,
-        duration: 300,
-        ease: "Sine.easeInOut",
-        yoyo: true,
-        repeat: -1
+        alpha: 0,
+        duration: 200,
+        ease: "Power2",
+        onComplete: () => {
+          glow.setVisible(false);
+        }
       });
     }
   }
+/**
+ * Start pulsing animation for hold notes
+ * @param {string} key - The key being held
+ */
+
+/*
+startHoldPulse(key) {
+  if (!this.keyVisuals[key]) return;
   
+  const keyVisual = this.keyVisuals[key];
+  const glow = this.keyGlows[key];
+  
+  // Stop any existing animations first
+  this.tweens.killTweensOf(keyVisual);
+  if (glow) {
+    this.tweens.killTweensOf(glow);
+  }
+  
+  // Set hold state instantly - NO RESET needed!
+  const pressedScale = 0.85;
+  const tintColor = this.themeColors.perfect;
+  
+  keyVisual.setTint(tintColor);
+  keyVisual.setScale(pressedScale);
+  
+  // Start pulsing immediately from pressed state
+  const pulseScale = pressedScale + 0.1;
+  
+  this.tweens.add({
+    targets: keyVisual,
+    scaleX: { from: pressedScale, to: pulseScale },
+    scaleY: { from: pressedScale, to: pulseScale },
+    duration: 300,
+    ease: "Sine.easeInOut",
+    yoyo: true,
+    repeat: -1
+  });
+  
+  // Glow setup
+  if (glow) {
+    glow.setFillStyle(tintColor, 0.4);
+    glow.setVisible(true);
+    glow.setAlpha(0.6);
+    glow.setScale(1.0);
+    
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.6, to: 0.8 },
+      scale: { from: 1.0, to: 1.2 },
+      duration: 300,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      repeat: -1
+    });
+  }
+}  */
   /**
    * Stop pulsing animation for hold notes
    * @param {string} key - The key that was released
@@ -1482,7 +1567,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  showFeedback(text, color, key) {
+  showFeedback(text, color, key, isHold = false) {
     // Text feedback
     this.feedbackText.setText(text);
     this.feedbackText.setColor(color);
@@ -1525,8 +1610,10 @@ export default class GameScene extends Phaser.Scene {
       this.createPerfectHitParticles(key);
     }
     
-    // Use new animation system
-    this.animateKeyPress(key, quality, false);
+    // Only animate key press if it's not a hold note (hold notes are already animated in handlePlayerInput)
+    if (!isHold) {
+      this.animateKeyPress(key, quality, false);
+    }
   }
 
   /**
@@ -1737,33 +1824,64 @@ export default class GameScene extends Phaser.Scene {
           const distance = Math.abs(note.y - this.JUDGMENT_Y);
           noteHit = true;
 
-          // Check if this is a hold note
           if (note.isHold) {
             // Start holding the note
             if (distance < goodMargin && !note.held) {
               note.held = true;
               note.holdStartTime = this.time.now;
               
+              // Guard: Make sure we haven't already animated this
+              const keyVisual = this.keyVisuals[keyPressed];
+              if (keyVisual && keyVisual.scaleX >= 1.0) { // Only animate if not already pressed
+                // Stop any existing animations FIRST
+                this.tweens.killTweensOf(keyVisual);
+                
+                // Determine color based on quality
+                let quality = distance < perfectMargin ? "perfect" : "good";
+                const tintColor = quality === "perfect" ? this.themeColors.perfect : this.themeColors.good;
+                
+                // Animate to pressed state ONCE
+                this.tweens.add({
+                  targets: keyVisual,
+                  scaleX: 0.85,
+                  scaleY: 0.85,
+                  duration: 100,
+                  ease: "Linear", // Changed to Linear for smooth, direct animation
+                  yoyo: false, // Explicitly no yoyo
+                  onComplete: () => {
+                    // Key stays in pressed state - no further animation
+                  }
+                });
+                
+                keyVisual.setTint(tintColor);
+                
+                // Show static glow (no pulsing)
+                const glow = this.keyGlows[keyPressed];
+                if (glow) {
+                  glow.setFillStyle(tintColor, 0.4);
+                  glow.setVisible(true);
+                  glow.setAlpha(0.6);
+                  glow.setScale(1.0);
+                }
+              }
+              
               // Transform key sprite into hold bar
               this.transformToHoldBar(note, keyPressed);
               
               // Show feedback for starting the hold
-              let quality = distance < perfectMargin ? "perfect" : "good";
               if (distance < perfectMargin) {
                 const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-                this.showFeedback("Hold Start!", perfectColor, keyPressed);
+                this.showFeedback("Hold Start!", perfectColor, keyPressed, true);
               } else {
                 const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-                this.showFeedback("Hold Start", goodColor, keyPressed);
+                this.showFeedback("Hold Start", goodColor, keyPressed, true);
               }
               
-              // Animate key press and start hold pulse
-              this.animateKeyPress(keyPressed, quality, true);
-              this.startHoldPulse(keyPressed);
+              // REMOVE THIS - no pulsing animation
+              // this.startHoldPulse(keyPressed);
             }
-            // Don't break - allow checking other notes, but hold notes need to be held
             continue;
-          } else {
+          }else {
             // Regular note handling
             let quality = "good";
             let baseScore = 0;
@@ -1788,7 +1906,7 @@ export default class GameScene extends Phaser.Scene {
             const multipliedScore = Math.floor(baseScore * comboMultiplier);
             
             // Animate key press with quality-based feedback
-            this.animateKeyPress(keyPressed, quality, false);
+             this.animateKeyPress(keyPressed, quality, false);
 
             this.notesHit++;
             this.currentStreak++;
@@ -1926,5 +2044,87 @@ export default class GameScene extends Phaser.Scene {
         name.destroy();
       }
     });
+  }
+
+  /**
+   * Animate key for automatic miss feedback (when note passes without being hit)
+   * This is separate from manual key presses - automatically returns to normal
+   * @param {string} key - The key that missed
+   */
+  animateMissFeedback(key) {
+    if (!this.keyVisuals[key]) return;
+    
+    const keyVisual = this.keyVisuals[key];
+    const glow = this.keyGlows[key];
+    
+    // Check if key is currently being held for a hold note
+    let isKeyCurrentlyHeld = false;
+    for (let i = 0; i < this.fallingKeys.length; i++) {
+      const note = this.fallingKeys[i];
+      if (note.keyType === key && note.isHold && note.held && note.holdStartTime) {
+        isKeyCurrentlyHeld = true;
+        break;
+      }
+    }
+    
+    // Don't animate if key is being held for a hold note
+    if (isKeyCurrentlyHeld) {
+      return;
+    }
+    
+    // Stop any existing animations
+    this.tweens.killTweensOf(keyVisual);
+    if (glow) {
+      this.tweens.killTweensOf(glow);
+    }
+    
+    const tintColor = this.themeColors.miss;
+    const glowColor = this.themeColors.miss;
+    
+    // Apply tint
+    keyVisual.setTint(tintColor);
+    
+    // Animate down to pressed state
+    this.tweens.add({
+      targets: keyVisual,
+      scaleX: 0.85,
+      scaleY: 0.85,
+      duration: 150, // Increased from 100ms
+      ease: "Linear",
+      yoyo: false,
+      onComplete: () => {
+        // Automatically return to normal after a moment
+        this.tweens.add({
+          targets: keyVisual,
+          scaleX: 1.0,
+          scaleY: 1.0,
+          duration: 200, // Increased from 150ms
+          delay: 300, // Increased from 200ms
+          ease: "Linear",
+          onComplete: () => {
+            keyVisual.clearTint();
+          }
+        });
+      }
+    });
+    
+    // Glow effect - fade in then out
+    if (glow) {
+      glow.setFillStyle(glowColor, 0.6);
+      glow.setVisible(true);
+      this.tweens.add({
+        targets: glow,
+        alpha: 0.8,
+        scale: 1.3,
+        duration: 150, // Increased from 100ms
+        ease: "Linear",
+        yoyo: false,
+        onComplete: () => {
+          glow.setVisible(false);
+          glow.setAlpha(0);
+          glow.setScale(1);
+        }
+      });
+    }
   }
 }
