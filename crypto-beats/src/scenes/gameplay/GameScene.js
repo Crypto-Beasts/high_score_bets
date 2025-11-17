@@ -535,8 +535,10 @@ export default class GameScene extends Phaser.Scene {
             this.stopHoldPulse(keyReleased);
             this.animateKeyRelease(keyReleased);
             
+            
             // Clean up hold bar
             if (note.holdBar) {
+              note.holdBar.setVisible(false); // Changed from key.holdBar to note.holdBar
               this.holdNotePool.release(note.holdBar);
               note.holdBar = null;
             }
@@ -553,16 +555,15 @@ export default class GameScene extends Phaser.Scene {
             note.holdStartTime = null;
             note.holdStartAudioTime = null;
             
-            // Revert tail to normal color if hold failed
-            // Key sprite stays hidden (doesn't reappear)
+            // Revert tail to normal color - it will continue falling
             if (note.holdBar) {
-              // Revert to subtle opacity and normal color (Rock Band style)
               const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
               note.holdBar.setFillStyle(tailColor.color, 0.7); // 70% opacity, normal color
             }
             
             // Key sprite stays hidden - it doesn't reappear
             note.setVisible(false);
+            note.keySpriteHidden = true; // Ensure it stays hidden
             if (note.trail) {
               note.trail.setVisible(false);
             }
@@ -572,11 +573,15 @@ export default class GameScene extends Phaser.Scene {
             this.animateKeyRelease(keyReleased);
 
             this.currentStreak = 0;
-            this.lastMilestone = 0; // Reset milestone tracking
+            this.lastMilestone = 0;
             this.failed = true;
             
             // Update combo display (will hide it)
             this.updateComboDisplay(0);
+            
+            // DON'T remove from fallingKeys - let it continue falling until it goes off screen
+            // The note will be cleaned up when it passes off-screen in the update loop
+            break;
           }
         }
       }
@@ -781,6 +786,7 @@ export default class GameScene extends Phaser.Scene {
    * Release a note back to its pool
    */
   releaseNote(note) {
+  
     // Clean up trail effect if it exists
     if (note.trail) {
       note.trail.destroy();
@@ -792,6 +798,11 @@ export default class GameScene extends Phaser.Scene {
       this.holdNotePool.release(note.holdBar);
       note.holdBar = null;
     }
+    
+    // Reset flags before releasing to pool
+    note.keyRemoved = false;
+    note.keySpriteHidden = false;
+    note.missTriggered = false;
     
     if (note.pooled) {
       // Hold notes now use regular note pools (they start as key sprites)
@@ -1130,53 +1141,63 @@ export default class GameScene extends Phaser.Scene {
         key.trail.y = key.y;
       }
       
-      // Update hold bar tail for falling notes
+      // Update hold bar tail for released hold notes - apply cut-off at judgment line
       if (key.isHold && key.holdBar && !key.held) {
-        // Tail extends upward from key sprite
-        const tailHeight = this.calculateTailHeight(key.holdDuration || 0);
-        const holdBarWidth = getResponsiveSpacing(15, width);
-        
-        key.holdBar.setSize(holdBarWidth, tailHeight);
-        key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
-        key.holdBar.setPosition(key.x, key.y); // Position at key sprite (bottom of tail at key position)
-        
-        // Maintain subtle opacity
-        const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-        key.holdBar.setFillStyle(tailColor.color, 0.7);
-      }
-      
-      // Culling: Hide notes that are far off-screen to reduce rendering
-      const isOffScreen = key.y < -cullMargin || key.y > screenHeight + cullMargin;
-      if (isOffScreen && key.visible) {
-        key.setVisible(false);
-        if (key.isHold && key.holdBar) {
-          key.holdBar.setVisible(false);
-        }
-      } else if (!isOffScreen && !key.visible) {
-        key.setVisible(true);
-        if (key.isHold && key.holdBar) {
-          key.holdBar.setVisible(true);
-        }
-      }
-      
-      // Visual feedback for held notes - tail gets "cut off" at judgment line
-      if (!isOffScreen && key.isHold && key.held && key.holdStartTime && key.holdBar) {
-        // Keep key sprite hidden
-        key.setVisible(false);
-        if (key.trail) {
-          key.trail.setVisible(false);
-        }
-        
         // Calculate original tail height
         const originalTailHeight = this.calculateTailHeight(key.holdDuration || 0);
         const holdBarWidth = getResponsiveSpacing(15, width);
         
         // The tail extends UPWARD from key.y (bottom of tail = key.y, top = key.y - originalTailHeight)
         // When key.y > judgmentY, the bottom of tail is below the judgment line
-        // We need to show only the portion above the judgment line
+        // We need to show only the portion above the judgment line (cut off at judgment line)
         
         // Check if the key sprite (bottom of tail) has passed the judgment line
         if (key.y > judgmentY) {
+          // Trigger miss animation if not already triggered
+          if (!key.missTriggered) {
+            key.missTriggered = true;
+            const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
+            this.showFeedback("Miss", missColor, key.keyType);
+            
+            // Check if this key is currently being held for another note
+            let isKeyCurrentlyHeld = false;
+            for (let j = 0; j < this.fallingKeys.length; j++) {
+              const otherNote = this.fallingKeys[j];
+              if (otherNote.keyType === key.keyType && otherNote.isHold && otherNote.held && otherNote.holdStartTime) {
+                isKeyCurrentlyHeld = true;
+                break;
+              }
+            }
+            
+            // Only animate if key is not currently being held
+            if (!isKeyCurrentlyHeld) {
+              this.animateMissFeedback(key.keyType);
+            }
+            
+            // Track miss
+            this.missCount++;
+            
+            // End current combo and record it
+            if (this.currentStreak > 0 && this.currentComboStart) {
+              this.comboHistory.push(this.currentStreak);
+              this.currentComboStart = null;
+            }
+            
+            this.currentStreak = 0;
+            this.lastMilestone = 0;
+            this.failed = true;
+            
+            // Update combo display (will hide it)
+            this.updateComboDisplay(0);
+          }
+          
+          // Hide key sprite when it passes judgment line (tail continues with cut-off)
+          // Mark key as removed so it never reappears
+          key.setVisible(false);
+          key.keyRemoved = true; // Flag to prevent culling from making it visible again
+          if (key.trail) {
+            key.trail.setVisible(false);
+          }
           // Key has passed judgment line - "cut off" the tail at the line
           // Calculate the top of the tail
           const tailTop = key.y - originalTailHeight;
@@ -1198,13 +1219,20 @@ export default class GameScene extends Phaser.Scene {
               // Position tail so its bottom is at the judgment line
               key.holdBar.setPosition(key.x, judgmentY);
               key.holdBar.setVisible(true);
+              
+              // Use released/normal color (not the glowing green)
+              const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+              key.holdBar.setFillStyle(tailColor.color, 0.7);
             } else {
               // No visible portion - hide the tail
               key.holdBar.setVisible(false);
             }
           } else {
-            // Entire tail is below the judgment line - hide it
+            // Entire tail is below the judgment line - hide it and clean up
             key.holdBar.setVisible(false);
+            this.releaseNote(key);
+            this.fallingKeys.splice(i, 1);
+            continue; // Skip to next note
           }
         } else {
           // Key hasn't reached judgment line yet - show full tail extending upward from key position
@@ -1212,24 +1240,129 @@ export default class GameScene extends Phaser.Scene {
           key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
           key.holdBar.setPosition(key.x, key.y); // Position at key sprite
           key.holdBar.setVisible(true);
+          
+          // Use released/normal color
+          const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+          key.holdBar.setFillStyle(tailColor.color, 0.7);
+        }
+      }
+      
+      // Culling: Hide notes that are far off-screen to reduce rendering
+      const isOffScreen = key.y < -cullMargin || key.y > screenHeight + cullMargin;
+      if (isOffScreen && key.visible) {
+        key.setVisible(false);
+        // Don't hide holdBar for active holds - cut-off logic handles visibility
+        if (key.isHold && key.holdBar && !(key.held && key.holdStartTime)) {
+          key.holdBar.setVisible(false);
+        }
+      } else if (!isOffScreen && !key.visible) {
+        // Don't make visible if key sprite was hidden for hold or removed (should never reappear)
+        if (!key.keySpriteHidden && !key.keyRemoved) {
+          key.setVisible(true);
+          // Don't show holdBar for active holds - cut-off logic handles visibility
+          if (key.isHold && key.holdBar && !(key.held && key.holdStartTime)) {
+            key.holdBar.setVisible(true);
+          }
+        }
+      }
+      
+      // Visual feedback for held notes - tail gets "cut off" at judgment line
+      // Only process cut-off when note is on-screen or near judgment line (respect culling for performance)
+      if (key.isHold && key.held && key.holdStartTime && key.holdBar) {
+        // Keep key sprite hidden
+        key.setVisible(false);
+        if (key.trail) {
+          key.trail.setVisible(false);
         }
         
-        // Pulse effect - glowing green when held (only if visible)
-        if (key.holdBar.visible) {
-          const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
-          const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
-          const greenIntensity = Math.floor(255 * pulse);
-          key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
+        // Check if note is far off-screen (above or below) - hide holdBar for performance
+        const isOffScreen = key.y < -cullMargin || key.y > screenHeight + cullMargin;
+        if (isOffScreen) {
+          key.holdBar.setVisible(false);
+        } else {
+          // Calculate original tail height
+          const originalTailHeight = this.calculateTailHeight(key.holdDuration || 0);
+          const holdBarWidth = getResponsiveSpacing(15, width);
+          
+          // The tail extends UPWARD from key.y (bottom of tail = key.y, top = key.y - originalTailHeight)
+          // When key.y > judgmentY, the bottom of tail is below the judgment line
+          // We need to show only the portion above the judgment line
+          
+          // Check if the key sprite (bottom of tail) has passed the judgment line
+          if (key.y > judgmentY) {
+            // Key has passed judgment line - "cut off" the tail at the line
+            // Calculate the top of the tail
+            const tailTop = key.y - originalTailHeight;
+            
+            // Check if any part of the tail is above the judgment line
+            if (tailTop < judgmentY) {
+              // Part of the tail is above the judgment line - calculate visible height
+              // Visible portion is from judgmentY (bottom) to tailTop (top)
+              const visibleHeight = judgmentY - tailTop;
+              
+              // Clamp to original tail height (shouldn't exceed it)
+              const clippedHeight = Math.min(visibleHeight, originalTailHeight);
+              
+              // Only show if there's a visible portion
+              if (clippedHeight > 0) {
+                // Resize tail to show only the portion above judgment line
+                key.holdBar.setSize(holdBarWidth, clippedHeight);
+                key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
+                // Position tail so its bottom is at the judgment line
+                key.holdBar.setPosition(key.x, judgmentY);
+                key.holdBar.setVisible(true);
+                
+                // Use released/normal color (not the glowing green)
+                const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+                key.holdBar.setFillStyle(tailColor.color, 0.7);
+              } else {
+                // No visible portion - hide the tail
+                key.holdBar.setVisible(false);
+              }
+            } else {
+              // Entire tail is below the judgment line - hide it and clean up
+              key.holdBar.setVisible(false);
+              this.releaseNote(key);
+              this.fallingKeys.splice(i, 1);
+              continue; // Skip to next note
+            }
+          } else {
+            // Key hasn't reached judgment line yet - show full tail extending upward from key position
+            key.holdBar.setSize(holdBarWidth, originalTailHeight);
+            key.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
+            key.holdBar.setPosition(key.x, key.y); // Position at key sprite
+            key.holdBar.setVisible(true);
+            
+            // Use released/normal color
+            const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+            key.holdBar.setFillStyle(tailColor.color, 0.7);
+          }
+          
+          // Pulse effect - glowing green when held (only if visible)
+          if (key.holdBar.visible) {
+            const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
+            const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
+            const greenIntensity = Math.floor(255 * pulse);
+            key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
+          }
         }
       }
 
 
-      // Remove notes that have passed the bottom of the screen
-      if (key.y > screenHeight) {
+      // Remove notes that have passed the judgment line without being hit (miss detection)
+      // Notes disappear immediately when they pass the judgment line to trigger miss animation
+      // EXCEPT: Hold notes maintain their tail cut-off logic (handled separately above)
+      if (key.y > judgmentY && !(key.isHold && !key.held)) {
+        // Immediately hide the note sprite - it should disappear as soon as miss is detected
+        key.setVisible(false);
+        if (key.trail) {
+          key.trail.setVisible(false);
+        }
+        
         // If it's a hold note that was being held, it's a miss
         const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
         if (key.isHold && key.held && key.holdBar) {
-          // Hold note was being held but passed the screen
+          // Hold note was being held but passed the judgment line
           this.showFeedback("Hold Miss", missColor, key.keyType, true);
           this.stopHoldPulse(key.keyType);
           this.animateKeyRelease(key.keyType);
@@ -1238,6 +1371,7 @@ export default class GameScene extends Phaser.Scene {
           this.holdNotePool.release(key.holdBar);
           key.holdBar = null;
         } else {
+          // Regular note miss (hold notes that weren't held are handled by tail cut-off logic above)
           // Check if this key is currently being held for another note
           let isKeyCurrentlyHeld = false;
           for (let j = 0; j < this.fallingKeys.length; j++) {
@@ -1248,20 +1382,11 @@ export default class GameScene extends Phaser.Scene {
             }
           }
           
-          if (key.isHold && !key.held) {
-            // Hold note was never pressed
-           this.showFeedback("Miss", missColor, key.keyType);
-            // Only animate if key is not currently being held
-            if (!isKeyCurrentlyHeld) {
-              this.animateMissFeedback(key.keyType); // Changed from animateKeyPress
-            }
-          } else {
-            // Regular note miss
-             this.showFeedback("Miss", missColor, key.keyType);
-            // Only animate if key is not currently being held
-            if (!isKeyCurrentlyHeld) {
-              this.animateMissFeedback(key.keyType); // Changed from animateKeyPress
-            }
+          // Regular note miss
+          this.showFeedback("Miss", missColor, key.keyType);
+          // Only animate if key is not currently being held
+          if (!isKeyCurrentlyHeld) {
+            this.animateMissFeedback(key.keyType);
           }
         }
         
@@ -1283,6 +1408,7 @@ export default class GameScene extends Phaser.Scene {
         
         // Update combo display (will hide it)
         this.updateComboDisplay(0);
+        continue; // Skip to next note
       }
     }
 
@@ -1401,11 +1527,6 @@ export default class GameScene extends Phaser.Scene {
         duration: 100,
         ease: "Linear",
         yoyo: false, // Remove yoyo - just fade out
-       /* onComplete: () => {
-          glow.setVisible(false);
-          glow.setAlpha(0);
-          glow.setScale(1);
-        }*/
       });
     }
   }
@@ -1427,7 +1548,7 @@ export default class GameScene extends Phaser.Scene {
     }
     
     // Smoothly return to normal size and clear tint
-    this.tweens.add({
+   this.tweens.add({
       targets: keyVisual,
       scaleX: 1.0,
       scaleY: 1.0,
