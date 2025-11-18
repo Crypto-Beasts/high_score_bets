@@ -257,6 +257,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Layout already calculated above, reuse it
     this.fallingKeys = [];
+    this.keysPressed = {}; // Track which keys are currently pressed
 
     // Object pools for performance optimization
     this.notePools = {};
@@ -449,6 +450,10 @@ export default class GameScene extends Phaser.Scene {
 
   handleKeyRelease(event) {
     const keyReleased = event.key.toUpperCase();
+    
+    // Mark key as released
+    this.keysPressed[keyReleased] = false;
+    
     const perfectMargin = this.perfectMargin || 15;
     const goodMargin = this.goodMargin || 40;
 
@@ -1811,6 +1816,19 @@ export default class GameScene extends Phaser.Scene {
     let noteHit = false;
 
     if (this.keyLanes[keyPressed]) {
+      // Check if this is a fresh key press (not a key repeat)
+      const wasAlreadyPressed = this.keysPressed[keyPressed] || false;
+      
+      // Only process if this is a fresh press (key transitioning from not pressed to pressed)
+      if (wasAlreadyPressed) {
+        // Key is already held - don't process hold note activation
+        // This prevents activating holds when key was pressed before note reached the line
+        return;
+      }
+      
+      // Mark key as pressed
+      this.keysPressed[keyPressed] = true;
+      
       for (let i = 0; i < this.fallingKeys.length; i++) {
         const note = this.fallingKeys[i];
         
@@ -1819,14 +1837,19 @@ export default class GameScene extends Phaser.Scene {
 
           if (note.isHold) {
             // Start holding the note
-            if (distance < goodMargin && !note.held) {
-              noteHit = true; // Only set noteHit when actually hitting the note
+            // Only activate if the note's tail (key sprite) is at or near the judgment line
+            // AND this is a fresh key press (not a key repeat)
+            const noteHasReachedLine = note.y >= this.JUDGMENT_Y - goodMargin;
+            const noteHasntPassedTooFar = note.y <= this.JUDGMENT_Y + goodMargin;
+            
+            if (noteHasReachedLine && noteHasntPassedTooFar && !note.held) {
+              noteHit = true;
               note.held = true;
               note.holdStartTime = this.time.now;
               
               // Guard: Make sure we haven't already set this to pressed state
               const keyVisual = this.keyVisuals[keyPressed];
-              if (keyVisual && keyVisual.scaleX >= 1.0) { // Only set if not already pressed
+              if (keyVisual && keyVisual.scaleX >= 1.0) {
                 // Stop any existing animations FIRST
                 this.tweens.killTweensOf(keyVisual);
                 
@@ -1853,7 +1876,7 @@ export default class GameScene extends Phaser.Scene {
               this.transformToHoldBar(note, keyPressed);
             }
             continue;
-          }else {
+          } else {
             // Regular note handling
             let quality = "good";
             let baseScore = 0;
@@ -1871,14 +1894,14 @@ export default class GameScene extends Phaser.Scene {
               continue;
             }
             
-            noteHit = true; // Only set noteHit when actually hitting the note
+            noteHit = true;
             
             // Apply combo multiplier to score
             const comboMultiplier = this.getComboMultiplier(this.currentStreak);
             const multipliedScore = Math.floor(baseScore * comboMultiplier);
             
             // Animate key press with quality-based feedback
-             this.animateKeyPress(keyPressed, quality, false);
+            this.animateKeyPress(keyPressed, quality, false);
 
             this.notesHit++;
             this.currentStreak++;
@@ -1889,7 +1912,7 @@ export default class GameScene extends Phaser.Scene {
               if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
                 const totalSongs = getAllSongs().length;
                 const gameData = {
-                  accuracy: 0, // Not needed for combo check
+                  accuracy: 0,
                   grade: '',
                   difficulty: this.currentDifficulty,
                   longestStreak: this.longestStreak,
