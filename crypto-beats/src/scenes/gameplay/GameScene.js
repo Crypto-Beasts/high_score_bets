@@ -494,7 +494,6 @@ export default class GameScene extends Phaser.Scene {
               score = 20;
             }
             
-            this.showFeedback(feedbackText, feedbackColor, keyReleased, true);
             
             // Apply combo multiplier to score
             const comboMultiplier = this.getComboMultiplier(this.currentStreak);
@@ -531,10 +530,10 @@ export default class GameScene extends Phaser.Scene {
             
             this.updateScore(this.score);
             
-            // Stop hold pulse and animate release
+            // Stop hold pulse (clean up any tweens, but keep key in pressed state)
             this.stopHoldPulse(keyReleased);
-            this.animateKeyRelease(keyReleased);
-            
+            // Key visual remains in pressed state until user physically releases the key
+            // Reset will happen in handleKeyRelease when key is actually released (lines 613-646)
             
             // Clean up hold bar
             if (note.holdBar) {
@@ -550,7 +549,6 @@ export default class GameScene extends Phaser.Scene {
           } else {
             // Hold was released too early (before 70% completion)
             const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-            this.showFeedback("Hold Failed", missColor, keyReleased, true);
             note.held = false;
             note.holdStartTime = null;
             note.holdStartAudioTime = null;
@@ -568,9 +566,22 @@ export default class GameScene extends Phaser.Scene {
               note.trail.setVisible(false);
             }
             
-            // Animate key release (returns to normal state)
+            // Reset key state (no animation)
             this.stopHoldPulse(keyReleased);
-            this.animateKeyRelease(keyReleased);
+            // Reset key visual immediately without animation
+            const keyVisual = this.keyVisuals[keyReleased];
+            const glow = this.keyGlows[keyReleased];
+            if (keyVisual) {
+              this.tweens.killTweensOf(keyVisual);
+              keyVisual.setScale(1.0, 1.0);
+              keyVisual.clearTint();
+            }
+            if (glow) {
+              this.tweens.killTweensOf(glow);
+              glow.setVisible(false);
+              glow.setAlpha(0);
+              glow.setScale(1);
+            }
 
             this.currentStreak = 0;
             this.lastMilestone = 0;
@@ -605,7 +616,17 @@ export default class GameScene extends Phaser.Scene {
             
             // Only release if it's not being held for a hold note
             if (!isKeyCurrentlyHeld) {
-              this.animateKeyRelease(keyReleased);
+              // Reset key visual immediately without animation
+              this.tweens.killTweensOf(keyVisual);
+              keyVisual.setScale(1.0, 1.0);
+              keyVisual.clearTint();
+              const glow = this.keyGlows[keyReleased];
+              if (glow) {
+                this.tweens.killTweensOf(glow);
+                glow.setVisible(false);
+                glow.setAlpha(0);
+                glow.setScale(1);
+              }
             }
           }
         }
@@ -1203,7 +1224,6 @@ export default class GameScene extends Phaser.Scene {
                 if (!key.missTriggered) {
                   key.missTriggered = true;
                   const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-                  this.showFeedback("Miss", missColor, key.keyType);
                   
                   // Check if this key is currently being held for another note
                   let isKeyCurrentlyHeld = false;
@@ -1215,10 +1235,7 @@ export default class GameScene extends Phaser.Scene {
                     }
                   }
                   
-                  // Only animate if key is not currently being held
-                  if (!isKeyCurrentlyHeld) {
-                    this.animateMissFeedback(key.keyType);
-                  }
+                  // No animation when note crosses judgment line - only track miss
                   
                   // Track miss
                   this.missCount++;
@@ -1237,43 +1254,62 @@ export default class GameScene extends Phaser.Scene {
                   this.updateComboDisplay(0);
                 }
                 
-                // Hide key sprite when it passes judgment line (tail continues with cut-off)
-                // Mark key as removed so it never reappears
-                key.setVisible(false);
-                key.keyRemoved = true; // Flag to prevent culling from making it visible again
-                if (key.trail) {
-                  key.trail.setVisible(false);
-                }
+                // Note continues scrolling naturally - no hiding or removal
               }
             } else {
               // No visible portion - hide the tail
               key.holdBar.setVisible(false);
             }
           } else {
-            // Entire tail is below the judgment line - hide it and clean up
-            key.holdBar.setVisible(false);
+            // Entire tail is below the judgment line - note continues scrolling naturally
             
-            // If this is a held note that passed the line, it's a miss
-            if (key.held) {
-              const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-              this.showFeedback("Hold Miss", missColor, key.keyType, true);
-              this.stopHoldPulse(key.keyType);
-              this.animateKeyRelease(key.keyType);
+            // If this is a held note that passed the line, check if it was released too early
+            // Only mark as miss if the hold duration wasn't completed
+            // The key visual should remain in pressed state until user releases the key
+            if (key.held && !key.missTriggered) {
+              // Check if hold was completed successfully using audio time
+              const currentAudioTime = this.getCurrentAudioTime();
+              const holdStartAudioTime = key.holdStartAudioTime;
+              const requiredDuration = key.holdDuration || 0;
+              const expectedEndTime = holdStartAudioTime + requiredDuration;
+              const durationTolerance = 0.1; // 100ms tolerance
               
-              this.missCount++;
-              if (this.currentStreak > 0 && this.currentComboStart) {
-                this.comboHistory.push(this.currentStreak);
-                this.currentComboStart = null;
+              // Only mark as miss if hold wasn't completed (released too early)
+              // If hold was completed, the note will be cleaned up in handleKeyRelease
+              // and the key will remain pressed until user releases it
+              if (currentAudioTime < expectedEndTime - durationTolerance) {
+                key.missTriggered = true;
+                const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
+                this.stopHoldPulse(key.keyType);
+                // Reset key visual immediately without animation
+                const keyVisual = this.keyVisuals[key.keyType];
+                const glow = this.keyGlows[key.keyType];
+                if (keyVisual) {
+                  this.tweens.killTweensOf(keyVisual);
+                  keyVisual.setScale(1.0, 1.0);
+                  keyVisual.clearTint();
+                }
+                if (glow) {
+                  this.tweens.killTweensOf(glow);
+                  glow.setVisible(false);
+                  glow.setAlpha(0);
+                  glow.setScale(1);
+                }
+                
+                this.missCount++;
+                if (this.currentStreak > 0 && this.currentComboStart) {
+                  this.comboHistory.push(this.currentStreak);
+                  this.currentComboStart = null;
+                }
+                this.currentStreak = 0;
+                this.lastMilestone = 0;
+                this.failed = true;
+                this.updateComboDisplay(0);
               }
-              this.currentStreak = 0;
-              this.lastMilestone = 0;
-              this.failed = true;
-              this.updateComboDisplay(0);
+              // If hold was completed successfully, key stays pressed until user releases
             }
             
-            this.releaseNote(key);
-            this.fallingKeys.splice(i, 1);
-            continue;
+            // Note continues scrolling - no removal
           }
         } else {
           // Key hasn't reached judgment line yet - show full tail
@@ -1315,15 +1351,10 @@ export default class GameScene extends Phaser.Scene {
       }
 
 
-      // Remove regular notes that have passed the judgment line without being hit (miss detection)
-      // Notes disappear immediately when they pass the judgment line to trigger miss animation
-      // EXCEPT: Hold notes are handled by unified hold note logic above
-      if (!key.isHold && key.y > judgmentY) {
-        // Immediately hide the note sprite - it should disappear as soon as miss is detected
-        key.setVisible(false);
-        if (key.trail) {
-          key.trail.setVisible(false);
-        }
+      // Miss detection for regular notes that have passed the judgment line (only trigger once)
+      // Notes continue scrolling naturally - no automatic removal
+      if (!key.isHold && key.y > judgmentY && !key.missTriggered) {
+        key.missTriggered = true;
         
         // Check if this key is currently being held for another note
         let isKeyCurrentlyHeld = false;
@@ -1337,11 +1368,7 @@ export default class GameScene extends Phaser.Scene {
         
         // Regular note miss
         const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-        this.showFeedback("Miss", missColor, key.keyType);
-        // Only animate if key is not currently being held
-        if (!isKeyCurrentlyHeld) {
-          this.animateMissFeedback(key.keyType);
-        }
+        // No animation when note crosses judgment line - only track miss
         
         // Track miss
         this.missCount++;
@@ -1352,16 +1379,14 @@ export default class GameScene extends Phaser.Scene {
           this.currentComboStart = null;
         }
         
-        // Clean up - return to pool instead of destroying
-        this.releaseNote(key);
-        this.fallingKeys.splice(i, 1);
         this.currentStreak = 0;
         this.lastMilestone = 0; // Reset milestone tracking
         this.failed = true;
         
         // Update combo display (will hide it)
         this.updateComboDisplay(0);
-        continue; // Skip to next note
+        
+        // Note continues scrolling naturally - no removal
       }
     }
 
@@ -1525,62 +1550,6 @@ export default class GameScene extends Phaser.Scene {
       });
     }
   }
-/**
- * Start pulsing animation for hold notes
- * @param {string} key - The key being held
- */
-
-/*
-startHoldPulse(key) {
-  if (!this.keyVisuals[key]) return;
-  
-  const keyVisual = this.keyVisuals[key];
-  const glow = this.keyGlows[key];
-  
-  // Stop any existing animations first
-  this.tweens.killTweensOf(keyVisual);
-  if (glow) {
-    this.tweens.killTweensOf(glow);
-  }
-  
-  // Set hold state instantly - NO RESET needed!
-  const pressedScale = 0.85;
-  const tintColor = this.themeColors.perfect;
-  
-  keyVisual.setTint(tintColor);
-  keyVisual.setScale(pressedScale);
-  
-  // Start pulsing immediately from pressed state
-  const pulseScale = pressedScale + 0.1;
-  
-  this.tweens.add({
-    targets: keyVisual,
-    scaleX: { from: pressedScale, to: pulseScale },
-    scaleY: { from: pressedScale, to: pulseScale },
-    duration: 300,
-    ease: "Sine.easeInOut",
-    yoyo: true,
-    repeat: -1
-  });
-  
-  // Glow setup
-  if (glow) {
-    glow.setFillStyle(tintColor, 0.4);
-    glow.setVisible(true);
-    glow.setAlpha(0.6);
-    glow.setScale(1.0);
-    
-    this.tweens.add({
-      targets: glow,
-      alpha: { from: 0.6, to: 0.8 },
-      scale: { from: 1.0, to: 1.2 },
-      duration: 300,
-      ease: "Sine.easeInOut",
-      yoyo: true,
-      repeat: -1
-    });
-  }
-}  */
   /**
    * Stop pulsing animation for hold notes
    * @param {string} key - The key that was released
@@ -1638,55 +1607,6 @@ startHoldPulse(key) {
       }
       
       this.lastScore = newScore;
-    }
-  }
-
-  showFeedback(text, color, key, isHold = false) {
-    // Text feedback
-    this.feedbackText.setText(text);
-    this.feedbackText.setColor(color);
-    this.feedbackText.setAlpha(1);
-    
-    // Play hit sound based on feedback type
-    try {
-      if (text.includes("Perfect")) {
-        // Play perfect hit sound (high pitch beep)
-        this.sound.play("hitPerfect", { volume: 0.3 });
-      } else if (text.includes("Good")) {
-        // Play good hit sound (medium pitch beep)
-        this.sound.play("hitGood", { volume: 0.25 });
-      } else if (text.includes("Miss")) {
-        // Play miss sound (low pitch error sound)
-        this.sound.play("hitMiss", { volume: 0.2 });
-      }
-    } catch (error) {
-      // Sounds might not be loaded, ignore
-    }
-  
-    this.tweens.add({
-      targets: this.feedbackText,
-      alpha: 0,
-      duration: 800,
-      ease: "Power2",
-    });
-  
-    // Determine quality from color (use theme colors)
-    let quality = "good";
-    const perfectColorHex = this.themeColors.perfect.toString(16).padStart(6, '0');
-    const missColorHex = this.themeColors.miss.toString(16).padStart(6, '0');
-    
-    // Compare colors (check if color string contains theme color hex or matches common patterns)
-    if (color.includes(perfectColorHex) || color.includes("00ff00") || color === "#00ff00") quality = "perfect";
-    else if (color.includes(missColorHex) || color.includes("ff0000") || color === "#ff0000") quality = "miss";
-    
-    // Add particle effects on perfect hits
-    if (quality === "perfect") {
-      this.createPerfectHitParticles(key);
-    }
-    
-    // Only animate key press if it's not a hold note (hold notes are already animated in handlePlayerInput)
-    if (!isHold) {
-      this.animateKeyPress(key, quality, false);
     }
   }
 
@@ -1896,17 +1816,17 @@ startHoldPulse(key) {
         
         if (note.keyType === keyPressed) {
           const distance = Math.abs(note.y - this.JUDGMENT_Y);
-          noteHit = true;
 
           if (note.isHold) {
             // Start holding the note
             if (distance < goodMargin && !note.held) {
+              noteHit = true; // Only set noteHit when actually hitting the note
               note.held = true;
               note.holdStartTime = this.time.now;
               
-              // Guard: Make sure we haven't already animated this
+              // Guard: Make sure we haven't already set this to pressed state
               const keyVisual = this.keyVisuals[keyPressed];
-              if (keyVisual && keyVisual.scaleX >= 1.0) { // Only animate if not already pressed
+              if (keyVisual && keyVisual.scaleX >= 1.0) { // Only set if not already pressed
                 // Stop any existing animations FIRST
                 this.tweens.killTweensOf(keyVisual);
                 
@@ -1914,24 +1834,14 @@ startHoldPulse(key) {
                 let quality = distance < perfectMargin ? "perfect" : "good";
                 const tintColor = quality === "perfect" ? this.themeColors.perfect : this.themeColors.good;
                 
-                // Animate to pressed state ONCE
-                this.tweens.add({
-                  targets: keyVisual,
-                  scaleX: 0.85,
-                  scaleY: 0.85,
-                  duration: 100,
-                  ease: "Linear", // Changed to Linear for smooth, direct animation
-                  yoyo: false, // Explicitly no yoyo
-                  onComplete: () => {
-                    // Key stays in pressed state - no further animation
-                  }
-                });
-                
+                // Immediately set to pressed state (no animation)
+                keyVisual.setScale(0.85, 0.85);
                 keyVisual.setTint(tintColor);
                 
-                // Show static glow (no pulsing)
+                // Show static glow (no pulsing, no animation)
                 const glow = this.keyGlows[keyPressed];
                 if (glow) {
+                  this.tweens.killTweensOf(glow);
                   glow.setFillStyle(tintColor, 0.4);
                   glow.setVisible(true);
                   glow.setAlpha(0.6);
@@ -1941,18 +1851,6 @@ startHoldPulse(key) {
               
               // Transform key sprite into hold bar
               this.transformToHoldBar(note, keyPressed);
-              
-              // Show feedback for starting the hold
-              if (distance < perfectMargin) {
-                const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-                this.showFeedback("Hold Start!", perfectColor, keyPressed, true);
-              } else {
-                const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-                this.showFeedback("Hold Start", goodColor, keyPressed, true);
-              }
-              
-              // REMOVE THIS - no pulsing animation
-              // this.startHoldPulse(keyPressed);
             }
             continue;
           }else {
@@ -1961,19 +1859,19 @@ startHoldPulse(key) {
             let baseScore = 0;
             if (distance < perfectMargin) {
               const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-              this.showFeedback("Perfect!", perfectColor, keyPressed);
               baseScore = 20;
               this.perfectCount++;
               quality = "perfect";
             } else if (distance < goodMargin) {
               const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-              this.showFeedback("Good", goodColor, keyPressed);
               baseScore = 10;
               this.goodCount++;
               quality = "good";
             } else {
               continue;
             }
+            
+            noteHit = true; // Only set noteHit when actually hitting the note
             
             // Apply combo multiplier to score
             const comboMultiplier = this.getComboMultiplier(this.currentStreak);
@@ -2125,6 +2023,8 @@ startHoldPulse(key) {
    * This is separate from manual key presses - automatically returns to normal
    * @param {string} key - The key that missed
    */
+  // COMMENTED OUT: No automatic animations when notes cross judgment line
+  /*
   animateMissFeedback(key) {
     if (!this.keyVisuals[key]) return;
     
@@ -2201,4 +2101,5 @@ startHoldPulse(key) {
       });
     }
   }
+  */
 }
