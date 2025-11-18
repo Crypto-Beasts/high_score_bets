@@ -19,6 +19,7 @@
   "dependencies": {
     "howler": "^2.2.4",
     "phaser": "^3.88.2",
+    "socket.io-client": "^4.7.2",
     "vite": "^6.2.0"
   }
 }
