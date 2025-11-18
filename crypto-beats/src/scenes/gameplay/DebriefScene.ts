@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { getSongById, getAllSongs } from "../../config/songs.js";
-import { DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager.js";
+import { getSongById, getAllSongs } from "../../config/songs";
+import { DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -8,20 +8,49 @@ import {
   getResponsiveFontSize,
   getResponsiveSpacing,
   getResponsiveButtonSize
-} from "../../utils/ui/responsive.js";
+} from "../../utils/ui/responsive";
 import { 
   checkAchievements, 
   recordSongCompletion, 
   getAchievement,
   getAllAchievements 
-} from "../../utils/game/achievements.js";
+} from "../../utils/game/achievements";
+
+interface DebriefData {
+  score?: number;
+  totalNotes?: number;
+  notesHit?: number;
+  longestStreak?: number;
+  averageCombo?: number;
+  perfectCount?: number;
+  goodCount?: number;
+  missCount?: number;
+  failed?: boolean;
+  song?: string;
+  difficulty?: string;
+}
 
 export default class DebriefScene extends Phaser.Scene {
+  private score: number = 0;
+  private totalNotes: number = 1;
+  private notesHit: number = 0;
+  private longestStreak: number = 0;
+  private averageCombo: number = 0;
+  private perfectCount: number = 0;
+  private goodCount: number = 0;
+  private missCount: number = 0;
+  private failed: boolean = false;
+  private song: string = "Aguado_Menuet_Aminor";
+  private difficulty: string = "normal";
+  private newlyUnlockedAchievements: string[] = [];
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private backgroundRect?: Phaser.GameObjects.Rectangle;
+
   constructor() {
     super({ key: "DebriefScene" });
   }
 
-  init(data) {
+  init(data: DebriefData): void {
     this.score = data.score || 0;
     this.totalNotes = data.totalNotes || 1; // Avoid division by zero
     this.notesHit = data.notesHit || 0;
@@ -35,85 +64,85 @@ export default class DebriefScene extends Phaser.Scene {
     this.difficulty = data.difficulty || "normal";
   }
 
-      create() {
-        // Record song completion for achievements
-        const percentageHit = parseFloat(((this.notesHit / this.totalNotes) * 100).toFixed(1));
-        const grade = this.calculateGrade(percentageHit);
-        
-        recordSongCompletion(
-          this.song,
-          this.difficulty,
-          percentageHit,
-          grade,
-          this.longestStreak
-        );
-        
-        // Check for achievements
-        const totalSongs = getAllSongs().length;
-        const gameData = {
-          accuracy: percentageHit,
-          grade: grade,
-          difficulty: this.difficulty,
-          longestStreak: this.longestStreak,
-          failed: this.failed,
-          song: this.song
-        };
-        
-        const newlyUnlocked = checkAchievements(gameData, totalSongs);
-        
-        // Store newly unlocked achievements for notification
-        this.newlyUnlockedAchievements = newlyUnlocked;
-        
-        this.setupUI();
-        
-        // Show achievement notifications after a short delay
-        if (newlyUnlocked.length > 0) {
-          this.time.delayedCall(1000, () => {
-            this.showAchievementNotifications(newlyUnlocked);
-          });
-        }
-        
-        // Listen for resize events
-        this.scale.on('resize', this.handleResize, this);
-      }
+  create(): void {
+    // Record song completion for achievements
+    const percentageHit = parseFloat(((this.notesHit / this.totalNotes) * 100).toFixed(1));
+    const grade = this.calculateGrade(percentageHit);
+    
+    recordSongCompletion(
+      this.song,
+      this.difficulty,
+      percentageHit,
+      grade,
+      this.longestStreak
+    );
+    
+    // Check for achievements
+    const totalSongs = getAllSongs().length;
+    const gameData = {
+      accuracy: percentageHit,
+      grade: grade,
+      difficulty: this.difficulty,
+      longestStreak: this.longestStreak,
+      failed: this.failed,
+      song: this.song
+    };
+    
+    const newlyUnlocked = checkAchievements(gameData, totalSongs);
+    
+    // Store newly unlocked achievements for notification
+    this.newlyUnlockedAchievements = newlyUnlocked;
+    
+    this.setupUI();
+    
+    // Show achievement notifications after a short delay
+    if (newlyUnlocked.length > 0) {
+      this.time.delayedCall(1000, () => {
+        this.showAchievementNotifications(newlyUnlocked);
+      });
+    }
+    
+    // Listen for resize events
+    this.scale.on('resize', this.handleResize, this);
+  }
 
-      setupUI() {
-        const { width, height } = this.scale;
-        
-        // Safety check: ensure scene is fully initialized
-        if (!this.cameras || !this.cameras.main) {
-          console.warn("[DebriefScene] Scene not fully initialized, skipping setupUI");
-          return;
-        }
-        
-        // Clear existing UI if recreating - destroy all children except background
-        const childrenToDestroy = [];
-        this.children.list.forEach(child => {
-          if (child !== this.backgroundImage && child !== this.backgroundRect) {
-            childrenToDestroy.push(child);
-          }
-        });
-        childrenToDestroy.forEach(child => child.destroy());
-        
-        if (this.backgroundImage) this.backgroundImage.destroy();
-        if (this.backgroundRect) this.backgroundRect.destroy();
-        
-        // Set background color as fallback
-        this.cameras.main.setBackgroundColor(0x000000);
-        
-        // Background fills screen
-        if (this.textures.exists("background")) {
-          this.backgroundImage = this.add.image(width / 2, height / 2, "background");
-          this.backgroundImage.setDisplaySize(width, height);
-        } else {
-          // Fallback: solid color background if image doesn't load
-          this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
-        }
+  private setupUI(): void {
+    const { width, height } = this.scale;
+    
+    // Safety check: ensure scene is fully initialized
+    if (!this.cameras || !this.cameras.main) {
+      console.warn("[DebriefScene] Scene not fully initialized, skipping setupUI");
+      return;
+    }
+    
+    // Clear existing UI if recreating - destroy all children except background
+    const childrenToDestroy: Phaser.GameObjects.GameObject[] = [];
+    this.children.list.forEach(child => {
+      if (child !== this.backgroundImage && child !== this.backgroundRect) {
+        childrenToDestroy.push(child);
+      }
+    });
+    childrenToDestroy.forEach(child => child.destroy());
+    
+    if (this.backgroundImage) this.backgroundImage.destroy();
+    if (this.backgroundRect) this.backgroundRect.destroy();
+    
+    // Set background color as fallback
+    this.cameras.main.setBackgroundColor(0x000000);
+    
+    // Background fills screen
+    if (this.textures.exists("background")) {
+      this.backgroundImage = this.add.image(width / 2, height / 2, "background");
+      this.backgroundImage.setDisplaySize(width, height);
+    } else {
+      // Fallback: solid color background if image doesn't load
+      this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+    }
 
     const percentageHit = ((this.notesHit / this.totalNotes) * 100).toFixed(1);
-    const grade = this.calculateGrade(percentageHit);
-    const stars = this.calculateStars(percentageHit);
-    const crowdReaction = this.getCrowdReaction(percentageHit);
+    const grade = this.calculateGrade(parseFloat(percentageHit));
+    const stars = this.calculateStars(parseFloat(percentageHit));
+    const crowdReaction = this.getCrowdReaction(parseFloat(percentageHit));
 
     // Responsive sizing
     const titleSize = getResponsiveTitleSize(width);
@@ -128,7 +157,7 @@ export default class DebriefScene extends Phaser.Scene {
     // Title
     const title = this.add.text(width / 2, titleY, "Song Complete!", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold",
       stroke: "#000000",
       strokeThickness: Math.max(2, Math.round(4 * (width / 1920)))
@@ -137,7 +166,7 @@ export default class DebriefScene extends Phaser.Scene {
     // Grade Display (Large)
     const gradeText = this.add.text(width / 2, gradeY, grade, {
       fontSize: gradeSize,
-      fill: this.getGradeColor(grade),
+      color: this.getGradeColor(grade),
       fontStyle: "bold",
       stroke: "#000000",
       strokeThickness: Math.max(3, Math.round(6 * (width / 1920)))
@@ -146,7 +175,7 @@ export default class DebriefScene extends Phaser.Scene {
     // Score Section
     this.add.text(width / 2, scoreY, `Final Score: ${this.score.toLocaleString()}`, {
       fontSize: subtitleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -155,7 +184,7 @@ export default class DebriefScene extends Phaser.Scene {
     const accuracyLabelX = width / 2 - getResponsiveSpacing(100, width);
     this.add.text(accuracyLabelX, accuracyY, `Accuracy: ${percentageHit}%`, {
       fontSize: bodySize,
-      fill: "#ffffff"
+      color: "#ffffff"
     }).setOrigin(0.5, 0.5);
     
     // Accuracy bar - responsive
@@ -164,11 +193,11 @@ export default class DebriefScene extends Phaser.Scene {
     const barX = width / 2 + getResponsiveSpacing(50, width);
     const accuracyBarBg = this.add.rectangle(barX, accuracyY, barWidth, barHeight, 0x333333, 1);
     const accuracyBar = this.add.rectangle(
-      barX - barWidth / 2 + (barWidth * (percentageHit / 100)) / 2,
+      barX - barWidth / 2 + (barWidth * (parseFloat(percentageHit) / 100)) / 2,
       accuracyY,
-      barWidth * (percentageHit / 100),
+      barWidth * (parseFloat(percentageHit) / 100),
       barHeight,
-      this.getAccuracyColor(percentageHit),
+      this.getAccuracyColor(parseFloat(percentageHit)),
       1
     );
 
@@ -182,45 +211,45 @@ export default class DebriefScene extends Phaser.Scene {
     // Left column
     this.add.text(statsLeftX, statsY, "Hit Breakdown:", {
       fontSize: smallSize,
-      fill: "#aaaaaa",
+      color: "#aaaaaa",
       fontStyle: "bold"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing, `Perfect: ${this.perfectCount}`, {
       fontSize: statValueSize,
-      fill: "#00ff00"
+      color: "#00ff00"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing * 2, `Good: ${this.goodCount}`, {
       fontSize: statValueSize,
-      fill: "#ffff00"
+      color: "#ffff00"
     }).setOrigin(0, 0.5);
 
     this.add.text(statsLeftX, statsY + statsSpacing * 3, `Miss: ${this.missCount}`, {
       fontSize: statValueSize,
-      fill: "#ff0000"
+      color: "#ff0000"
     }).setOrigin(0, 0.5);
 
     // Right column
     this.add.text(statsRightX, statsY, "Combo Stats:", {
       fontSize: smallSize,
-      fill: "#aaaaaa",
+      color: "#aaaaaa",
       fontStyle: "bold"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing, `Longest: ${this.longestStreak}x`, {
       fontSize: statValueSize,
-      fill: "#ffffff"
+      color: "#ffffff"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing * 2, `Average: ${this.averageCombo}x`, {
       fontSize: statValueSize,
-      fill: "#ffffff"
+      color: "#ffffff"
     }).setOrigin(1, 0.5);
 
     this.add.text(statsRightX, statsY + statsSpacing * 3, `Total Notes: ${this.totalNotes}`, {
       fontSize: statValueSize,
-      fill: "#ffffff"
+      color: "#ffffff"
     }).setOrigin(1, 0.5);
 
     // Stars - responsive
@@ -228,7 +257,7 @@ export default class DebriefScene extends Phaser.Scene {
     const starsSize = getResponsiveFontSize(36, width, 28, 48);
     this.add.text(width / 2, starsY, `⭐ Stars: ${"⭐".repeat(stars)}`, {
       fontSize: starsSize,
-      fill: "#ffcc00",
+      color: "#ffcc00",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -236,7 +265,7 @@ export default class DebriefScene extends Phaser.Scene {
     const reactionY = starsY + getResponsiveSpacing(50, height);
     this.add.text(width / 2, reactionY, crowdReaction, {
       fontSize: bodySize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "italic"
     }).setOrigin(0.5);
 
@@ -259,7 +288,7 @@ export default class DebriefScene extends Phaser.Scene {
 
     const retryText = this.add.text(width / 2 - buttonSpacing, buttonY, "Retry", {
       fontSize: buttonFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -290,7 +319,7 @@ export default class DebriefScene extends Phaser.Scene {
 
     const shareText = this.add.text(width / 2, buttonY, "Share", {
       fontSize: buttonFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -318,7 +347,7 @@ export default class DebriefScene extends Phaser.Scene {
 
     const menuText = this.add.text(width / 2 + buttonSpacing, buttonY, "Menu", {
       fontSize: buttonFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -335,12 +364,12 @@ export default class DebriefScene extends Phaser.Scene {
     });
   }
 
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Recreate UI with new dimensions
     this.setupUI();
   }
 
-  calculateGrade(accuracy) {
+  private calculateGrade(accuracy: number): string {
     if (accuracy >= 95) return "S";
     if (accuracy >= 90) return "A";
     if (accuracy >= 80) return "B";
@@ -349,8 +378,8 @@ export default class DebriefScene extends Phaser.Scene {
     return "F";
   }
 
-  getGradeColor(grade) {
-    const colors = {
+  private getGradeColor(grade: string): string {
+    const colors: Record<string, string> = {
       "S": "#ff00ff",
       "A": "#00ff00",
       "B": "#00aaff",
@@ -361,14 +390,14 @@ export default class DebriefScene extends Phaser.Scene {
     return colors[grade] || "#ffffff";
   }
 
-  getAccuracyColor(percentage) {
+  private getAccuracyColor(percentage: number): number {
     if (percentage >= 90) return 0x00ff00;
     if (percentage >= 70) return 0xffff00;
     if (percentage >= 50) return 0xff8800;
     return 0xff0000;
   }
 
-  calculateStars(accuracy) {
+  private calculateStars(accuracy: number): number {
     if (accuracy >= 95) return 5;
     if (accuracy >= 80) return 4;
     if (accuracy >= 60) return 3;
@@ -377,7 +406,7 @@ export default class DebriefScene extends Phaser.Scene {
     return 0;
   }
 
-  showAchievementNotifications(achievementIds) {
+  private showAchievementNotifications(achievementIds: string[]): void {
     const { width, height } = this.scale;
     
     achievementIds.forEach((achievementId, index) => {
@@ -414,7 +443,7 @@ export default class DebriefScene extends Phaser.Scene {
           `Achievement Unlocked!`,
           {
             fontSize: getResponsiveFontSize(24, width, 18, 30),
-            fill: "#00ff00",
+            color: "#00ff00",
             fontStyle: "bold",
             fontFamily: "'Orbitron', 'Arial', sans-serif"
           }
@@ -427,7 +456,7 @@ export default class DebriefScene extends Phaser.Scene {
           achievement.name,
           {
             fontSize: getResponsiveFontSize(20, width, 16, 24),
-            fill: "#ffffff",
+            color: "#ffffff",
             fontStyle: "bold"
           }
         ).setOrigin(0.5);
@@ -439,7 +468,7 @@ export default class DebriefScene extends Phaser.Scene {
           achievement.description,
           {
             fontSize: getResponsiveFontSize(16, width, 12, 20),
-            fill: "#aaaaaa"
+            color: "#aaaaaa"
           }
         ).setOrigin(0.5);
         
@@ -477,7 +506,7 @@ export default class DebriefScene extends Phaser.Scene {
     });
   }
 
-  getCrowdReaction(accuracy) {
+  private getCrowdReaction(accuracy: number): string {
     if (accuracy >= 95) return "🌟 Perfect performance! The crowd goes wild! 🌟";
     if (accuracy >= 90) return "🎉 Amazing! The audience is ecstatic!";
     if (accuracy >= 80) return "👏 Great job! The crowd is impressed!";
@@ -487,7 +516,7 @@ export default class DebriefScene extends Phaser.Scene {
     return "😢 The audience is disappointed...";
   }
 
-  shareScore() {
+  private shareScore(): void {
     const shareText = `🎵 Crypto Beats Score 🎵
 Score: ${this.score.toLocaleString()}
 Accuracy: ${((this.notesHit / this.totalNotes) * 100).toFixed(1)}%
@@ -509,7 +538,7 @@ Play Crypto Beats!`;
     }
   }
 
-  copyToClipboard(text) {
+  private copyToClipboard(text: string): void {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).then(() => {
         alert("Score copied to clipboard!");
@@ -521,7 +550,7 @@ Play Crypto Beats!`;
     }
   }
 
-  fallbackCopy(text) {
+  private fallbackCopy(text: string): void {
     const textArea = document.createElement("textarea");
     textArea.value = text;
     textArea.style.position = "fixed";
@@ -537,3 +566,4 @@ Play Crypto Beats!`;
     document.body.removeChild(textArea);
   }
 }
+

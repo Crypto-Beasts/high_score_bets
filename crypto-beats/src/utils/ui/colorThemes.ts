@@ -3,13 +3,34 @@
  * Manages different color schemes for notes, keys, and UI elements
  */
 
+export interface ThemeColors {
+  note: number;
+  noteGlow: number;
+  perfect: number;
+  good: number;
+  miss: number;
+  trail: number[];
+  keyGlow: number;
+  judgmentLine: number;
+}
+
+export interface Theme {
+  name: string;
+  description: string;
+  colors: ThemeColors;
+}
+
+export interface ThemeWithKey extends Theme {
+  key: string;
+}
+
 const STORAGE_KEY = 'cryptoBeats_colorTheme';
 const DEFAULT_THEME = 'default';
 
 /**
  * Available color themes
  */
-export const COLOR_THEMES = {
+export const COLOR_THEMES: Record<string, Theme> = {
   default: {
     name: 'Default',
     description: 'Classic white notes with green accents',
@@ -98,9 +119,9 @@ export const COLOR_THEMES = {
 
 /**
  * Get current theme from localStorage
- * @returns {string} Theme key
+ * @returns Theme key
  */
-export function getCurrentTheme() {
+export function getCurrentTheme(): string {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && COLOR_THEMES[stored]) {
@@ -114,10 +135,10 @@ export function getCurrentTheme() {
 
 /**
  * Set theme in localStorage
- * @param {string} themeKey - Theme key to set
- * @returns {boolean} True if successful
+ * @param themeKey - Theme key to set
+ * @returns True if successful
  */
-export function setTheme(themeKey) {
+export function setTheme(themeKey: string): boolean {
   try {
     if (COLOR_THEMES[themeKey]) {
       localStorage.setItem(STORAGE_KEY, themeKey);
@@ -131,29 +152,29 @@ export function setTheme(themeKey) {
 
 /**
  * Get theme colors object
- * @param {string} themeKey - Optional theme key, uses current if not provided
- * @returns {Object} Theme colors object
+ * @param themeKey - Optional theme key, uses current if not provided
+ * @returns Theme colors object
  */
-export function getThemeColors(themeKey = null) {
+export function getThemeColors(themeKey: string | null = null): ThemeColors {
   const key = themeKey || getCurrentTheme();
   return COLOR_THEMES[key]?.colors || COLOR_THEMES[DEFAULT_THEME].colors;
 }
 
 /**
  * Get theme object
- * @param {string} themeKey - Optional theme key, uses current if not provided
- * @returns {Object} Full theme object
+ * @param themeKey - Optional theme key, uses current if not provided
+ * @returns Full theme object
  */
-export function getTheme(themeKey = null) {
+export function getTheme(themeKey: string | null = null): Theme {
   const key = themeKey || getCurrentTheme();
   return COLOR_THEMES[key] || COLOR_THEMES[DEFAULT_THEME];
 }
 
 /**
  * Get all available themes
- * @returns {Array} Array of theme objects with keys
+ * @returns Array of theme objects with keys
  */
-export function getAllThemes() {
+export function getAllThemes(): ThemeWithKey[] {
   return Object.keys(COLOR_THEMES).map(key => ({
     key,
     ...COLOR_THEMES[key]

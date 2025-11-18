@@ -2,13 +2,28 @@
  * Error handling utilities for Crypto Beats
  */
 
+import Phaser from "phaser";
+
+export interface NoteData {
+  time: number;
+  key: string;
+  duration: number;
+  hold: boolean;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  notes: NoteData[];
+  error: string | null;
+}
+
 /**
  * Validate JSON structure for song data
- * @param {any} data - The JSON data to validate
- * @param {string} songId - Song ID for error messages
- * @returns {{valid: boolean, notes: Array, error: string|null}}
+ * @param data - The JSON data to validate
+ * @param songId - Song ID for error messages
+ * @returns Validation result with notes array and error message
  */
-export function validateSongData(data, songId = "unknown") {
+export function validateSongData(data: any, songId: string = "unknown"): ValidationResult {
   // Handle new format with metadata
   if (data && typeof data === 'object' && data.notes) {
     data = data.notes;
@@ -25,7 +40,7 @@ export function validateSongData(data, songId = "unknown") {
   
   // Validate each note
   const validKeys = ['W', 'A', 'S', 'D'];
-  const errors = [];
+  const errors: string[] = [];
   
   for (let i = 0; i < data.length; i++) {
     const note = data[i];
@@ -63,50 +78,50 @@ export function validateSongData(data, songId = "unknown") {
   
   return {
     valid: true,
-    notes: data,
+    notes: data as NoteData[],
     error: null
   };
 }
 
 /**
  * Check if an audio file exists in cache
- * @param {Phaser.Scene} scene - The scene to check cache
- * @param {string} audioKey - The cache key for the audio
- * @returns {boolean}
+ * @param scene - The scene to check cache
+ * @param audioKey - The cache key for the audio
+ * @returns True if audio exists in cache
  */
-export function audioExists(scene, audioKey) {
+export function audioExists(scene: Phaser.Scene, audioKey: string): boolean {
   if (!scene || !scene.cache) return false;
   return scene.cache.audio.exists(audioKey);
 }
 
 /**
  * Check if JSON data exists in cache
- * @param {Phaser.Scene} scene - The scene to check cache
- * @param {string} jsonKey - The cache key for the JSON
- * @returns {boolean}
+ * @param scene - The scene to check cache
+ * @param jsonKey - The cache key for the JSON
+ * @returns True if JSON exists in cache
  */
-export function jsonExists(scene, jsonKey) {
+export function jsonExists(scene: Phaser.Scene, jsonKey: string): boolean {
   if (!scene || !scene.cache) return false;
   return scene.cache.json.exists(jsonKey);
 }
 
 /**
  * Get fallback song ID
- * @param {Array} songs - Array of available songs
- * @returns {string|null}
+ * @param songs - Array of available songs
+ * @returns Fallback song ID or null
  */
-export function getFallbackSong(songs) {
+export function getFallbackSong(songs: Array<{ id: string }>): string | null {
   if (!songs || songs.length === 0) return null;
   return songs[0].id;
 }
 
 /**
  * Show user-friendly error message
- * @param {Phaser.Scene} scene - The scene to show error in
- * @param {string} message - Error message
- * @param {Function} onClose - Callback when error is closed
+ * @param scene - The scene to show error in
+ * @param message - Error message
+ * @param onClose - Callback when error is closed
  */
-export function showError(scene, message, onClose = null) {
+export function showError(scene: Phaser.Scene, message: string, onClose: (() => void) | null = null): void {
   const { width, height } = scene.scale;
   
   // Create error background
@@ -116,7 +131,7 @@ export function showError(scene, message, onClose = null) {
   // Error title
   const title = scene.add.text(width / 2, height / 2 - 100, "Error", {
     fontSize: "36px",
-    fill: "#ff0000",
+    color: "#ff0000",
     fontStyle: "bold"
   }).setOrigin(0.5);
   
@@ -124,7 +139,7 @@ export function showError(scene, message, onClose = null) {
   const maxWidth = width * 0.7;
   const errorText = scene.add.text(width / 2, height / 2, message, {
     fontSize: "20px",
-    fill: "#ffffff",
+    color: "#ffffff",
     wordWrap: { width: maxWidth }
   }).setOrigin(0.5);
   
@@ -134,7 +149,7 @@ export function showError(scene, message, onClose = null) {
   
   const closeText = scene.add.text(width / 2, height / 2 + 100, "OK", {
     fontSize: "24px",
-    fill: "#ffffff",
+    color: "#ffffff",
     fontStyle: "bold"
   }).setOrigin(0.5);
   
@@ -158,10 +173,10 @@ export function showError(scene, message, onClose = null) {
 
 /**
  * Log error for debugging
- * @param {string} context - Context where error occurred
- * @param {Error|string} error - Error object or message
+ * @param context - Context where error occurred
+ * @param error - Error object or message
  */
-export function logError(context, error) {
+export function logError(context: string, error: Error | string): void {
   const timestamp = new Date().toISOString();
   const errorMessage = error instanceof Error ? error.message : error;
   const errorStack = error instanceof Error ? error.stack : '';

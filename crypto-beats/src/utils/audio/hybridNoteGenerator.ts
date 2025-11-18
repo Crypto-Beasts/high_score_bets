@@ -8,8 +8,41 @@
  * - Server can validate against base + variation rules
  */
 
+import { NoteData } from "../data/errorHandler";
+
+export interface VariationConfig {
+  timingJitter?: number;
+  keyVariationChance?: number;
+  densityModifier?: number;
+  holdDurationVariance?: number;
+  seed?: number | null;
+}
+
+export interface VariedNote extends NoteData {
+  baseTime?: number;
+  baseKey?: string;
+  variationSeed?: number;
+  noteIndex?: number;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  accuracy: number;
+  matchCount: number;
+  totalExpected: number;
+  issues: Array<{ input?: any; reason: string; count?: number; notes?: VariedNote[] }>;
+  score: number;
+}
+
 export class HybridNoteGenerator {
-  constructor(baseNotes, variationConfig = {}) {
+  private baseNotes: NoteData[];
+  private variationConfig: Required<VariationConfig>;
+  private seed: number;
+  private random: () => number;
+  private variedNotes: VariedNote[];
+  private sessionSeed: number;
+
+  constructor(baseNotes: NoteData[], variationConfig: VariationConfig = {}) {
     this.baseNotes = baseNotes; // Original JSON notes
     this.variationConfig = {
       // Timing variance (milliseconds)
@@ -25,11 +58,11 @@ export class HybridNoteGenerator {
       holdDurationVariance: variationConfig.holdDurationVariance || 0.1,
       
       // Random seed for reproducibility (optional)
-      seed: variationConfig.seed || null
+      seed: variationConfig.seed ?? null
     };
     
     // Initialize random seed if provided
-    if (this.variationConfig.seed) {
+    if (this.variationConfig.seed !== null) {
       this.seed = this.variationConfig.seed;
     } else {
       // Generate random seed for this session
@@ -50,7 +83,7 @@ export class HybridNoteGenerator {
    * Seeded random number generator
    * Ensures same seed = same variations (for server validation)
    */
-  seededRandom(seed) {
+  private seededRandom(seed: number): () => number {
     let value = seed;
     return () => {
       value = (value * 9301 + 49297) % 233280;
@@ -61,8 +94,8 @@ export class HybridNoteGenerator {
   /**
    * Generate varied notes from base pattern
    */
-  generateVariedNotes() {
-    const varied = [];
+  private generateVariedNotes(): VariedNote[] {
+    const varied: VariedNote[] = [];
     let noteIndex = 0;
     
     for (const baseNote of this.baseNotes) {
@@ -100,7 +133,7 @@ export class HybridNoteGenerator {
       }
       
       // Create varied note
-      const variedNote = {
+      const variedNote: VariedNote = {
         ...baseNote,
         time: variedTime,
         key: variedKey,
@@ -122,11 +155,11 @@ export class HybridNoteGenerator {
   
   /**
    * Get notes that should spawn at current time
-   * @param {number} currentTime - Current game time
-   * @param {number} lookAhead - How far ahead to look (seconds)
-   * @returns {Array} Notes to spawn
+   * @param currentTime - Current game time
+   * @param lookAhead - How far ahead to look (seconds)
+   * @returns Notes to spawn
    */
-  getNotesToSpawn(currentTime, lookAhead = 2.0) {
+  getNotesToSpawn(currentTime: number, lookAhead: number = 2.0): VariedNote[] {
     return this.variedNotes.filter(note => {
       const spawnTime = note.time - 2.0; // Notes spawn 2 seconds before hit time
       return spawnTime >= currentTime && spawnTime <= currentTime + lookAhead;
@@ -136,25 +169,28 @@ export class HybridNoteGenerator {
   /**
    * Get all notes (for debugging/validation)
    */
-  getAllNotes() {
+  getAllNotes(): VariedNote[] {
     return this.variedNotes;
   }
   
   /**
    * Get session seed (for server validation)
    */
-  getSessionSeed() {
+  getSessionSeed(): number {
     return this.sessionSeed;
   }
 }
 
 /**
  * Create hybrid generator from JSON notes
- * @param {Array} jsonNotes - Notes from JSON file
- * @param {Object} variationConfig - Variation configuration
- * @returns {HybridNoteGenerator} Generator instance
+ * @param jsonNotes - Notes from JSON file
+ * @param variationConfig - Variation configuration
+ * @returns Generator instance
  */
-export function createHybridGenerator(jsonNotes, variationConfig = {}) {
+export function createHybridGenerator(
+  jsonNotes: NoteData[],
+  variationConfig: VariationConfig = {}
+): HybridNoteGenerator {
   return new HybridNoteGenerator(jsonNotes, variationConfig);
 }
 
@@ -162,13 +198,18 @@ export function createHybridGenerator(jsonNotes, variationConfig = {}) {
  * Server-side validation function
  * Validates that client inputs match expected variations
  * 
- * @param {Array} clientInputs - Inputs from client [{time, key, ...}]
- * @param {Array} baseNotes - Original JSON notes
- * @param {number} sessionSeed - Seed used for variations
- * @param {Object} variationConfig - Same config used by client
- * @returns {Object} Validation result {valid: boolean, score: number, issues: Array}
+ * @param clientInputs - Inputs from client [{time, key, ...}]
+ * @param baseNotes - Original JSON notes
+ * @param sessionSeed - Seed used for variations
+ * @param variationConfig - Same config used by client
+ * @returns Validation result
  */
-export function validateClientInputs(clientInputs, baseNotes, sessionSeed, variationConfig) {
+export function validateClientInputs(
+  clientInputs: Array<{ time: number; key: string; [key: string]: any }>,
+  baseNotes: NoteData[],
+  sessionSeed: number,
+  variationConfig: VariationConfig
+): ValidationResult {
   // Recreate generator with same seed
   const generator = new HybridNoteGenerator(baseNotes, {
     ...variationConfig,
@@ -176,7 +217,7 @@ export function validateClientInputs(clientInputs, baseNotes, sessionSeed, varia
   });
   
   const expectedNotes = generator.getAllNotes();
-  const issues = [];
+  const issues: Array<{ input?: any; reason: string; count?: number; notes?: VariedNote[] }> = [];
   let matchCount = 0;
   let totalExpected = expectedNotes.length;
   
@@ -185,7 +226,7 @@ export function validateClientInputs(clientInputs, baseNotes, sessionSeed, varia
     // Find matching expected note
     const expected = expectedNotes.find(note => {
       const timeDiff = Math.abs(note.time - input.time);
-      const timeTolerance = variationConfig.timingJitter / 1000 + 0.05; // Jitter + 50ms tolerance
+      const timeTolerance = (variationConfig.timingJitter || 10) / 1000 + 0.05; // Jitter + 50ms tolerance
       return timeDiff < timeTolerance && note.key === input.key;
     });
     

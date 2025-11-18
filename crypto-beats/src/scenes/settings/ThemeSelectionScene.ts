@@ -1,13 +1,27 @@
 import Phaser from "phaser";
-import { getAllThemes, getCurrentTheme, setTheme } from "../../utils/ui/colorThemes.js";
-import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing, getResponsiveFontSize, getResponsiveCardSize } from "../../utils/ui/responsive.js";
+import { getAllThemes, getCurrentTheme, setTheme, ThemeWithKey } from "../../utils/ui/colorThemes";
+import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing, getResponsiveFontSize, getResponsiveCardSize } from "../../utils/ui/responsive";
+
+interface ThemeCard {
+  bg: Phaser.GameObjects.Rectangle;
+  name: Phaser.GameObjects.Text;
+  desc: Phaser.GameObjects.Text;
+  theme: ThemeWithKey;
+  checkmark?: Phaser.GameObjects.Text;
+}
 
 export default class ThemeSelectionScene extends Phaser.Scene {
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private themeCards: ThemeCard[] = [];
+  private title?: Phaser.GameObjects.Text;
+  private instructions?: Phaser.GameObjects.Text;
+  private backButton?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "ThemeSelectionScene" });
   }
 
-  create() {
+  create(): void {
     const { width, height } = this.scale;
     
     // Set background color
@@ -28,19 +42,21 @@ export default class ThemeSelectionScene extends Phaser.Scene {
     const titleSize = getResponsiveTitleSize(width);
     const title = this.add.text(width / 2, getResponsiveSpacing(60, height), "Color Themes", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold",
       fontFamily: "'Orbitron', 'Arial', sans-serif"
     }).setOrigin(0.5);
+    this.title = title;
     
     // Instructions
     const bodySize = getResponsiveFontSize(16, width, 12, 20);
     const instructions = this.add.text(width / 2, getResponsiveSpacing(120, height), 
       "Select a color theme for notes and gameplay", {
       fontSize: bodySize,
-      fill: "#aaaaaa",
+      color: "#aaaaaa",
       align: "center"
     }).setOrigin(0.5);
+    this.instructions = instructions;
     
     // Theme cards
     const cardSize = getResponsiveCardSize(width, height);
@@ -68,7 +84,7 @@ export default class ThemeSelectionScene extends Phaser.Scene {
       // Theme name
       const nameText = this.add.text(cardX, cardY - 30, theme.name, {
         fontSize: getResponsiveFontSize(20, width, 16, 24),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold",
         fontFamily: "'Orbitron', 'Arial', sans-serif"
       }).setOrigin(0.5);
@@ -76,7 +92,7 @@ export default class ThemeSelectionScene extends Phaser.Scene {
       // Theme description
       const descText = this.add.text(cardX, cardY, theme.description, {
         fontSize: getResponsiveFontSize(14, width, 10, 18),
-        fill: "#cccccc",
+        color: "#cccccc",
         align: "center",
         wordWrap: { width: cardWidth - 40 }
       }).setOrigin(0.5);
@@ -91,13 +107,13 @@ export default class ThemeSelectionScene extends Phaser.Scene {
       });
       
       // Selected indicator
+      let checkmark: Phaser.GameObjects.Text | undefined;
       if (isSelected) {
-        const checkmark = this.add.text(cardX + cardWidth / 2 - 30, cardY - cardHeight / 2 + 20, "✓", {
+        checkmark = this.add.text(cardX + cardWidth / 2 - 30, cardY - cardHeight / 2 + 20, "✓", {
           fontSize: getResponsiveFontSize(24, width, 18, 30),
-          fill: "#00ff00",
+          color: "#00ff00",
           fontStyle: "bold"
         }).setOrigin(0.5);
-        cardBg.checkmark = checkmark;
       }
       
       // Click handler
@@ -123,7 +139,8 @@ export default class ThemeSelectionScene extends Phaser.Scene {
         bg: cardBg,
         name: nameText,
         desc: descText,
-        theme: theme
+        theme: theme,
+        checkmark: checkmark
       });
     });
     
@@ -132,10 +149,11 @@ export default class ThemeSelectionScene extends Phaser.Scene {
     const backY = startY + Math.ceil(themes.length / cardsPerRow) * (cardHeight + cardSpacing) + getResponsiveSpacing(40, height);
     const backButton = this.add.text(width / 2, backY, "Back to Menu", {
       fontSize: buttonSize.fontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: "#008CBA",
       padding: buttonSize.padding
     }).setOrigin(0.5).setInteractive();
+    this.backButton = backButton;
     
     backButton.on("pointerdown", () => {
       this.scene.start("MainMenuScene");
@@ -144,14 +162,9 @@ export default class ThemeSelectionScene extends Phaser.Scene {
     // Hover effects
     backButton.on("pointerover", () => backButton.setAlpha(0.8));
     backButton.on("pointerout", () => backButton.setAlpha(1));
-    
-    // Store references
-    this.title = title;
-    this.instructions = instructions;
-    this.backButton = backButton;
   }
   
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Recreate UI on resize
     this.create();
   }

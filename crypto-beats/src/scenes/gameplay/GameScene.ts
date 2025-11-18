@@ -1,22 +1,139 @@
 import Phaser from "phaser";
-import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty } from "../../utils/game/difficultyManager.js";
-import { getSongById, getAllSongs } from "../../config/songs.js";
-import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong } from "../../utils/data/errorHandler.js";
-import { createNotePool, createHoldNotePool } from "../../utils/game/objectPool.js";
-import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive.js";
+import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty, DifficultyLevel } from "../../utils/game/difficultyManager";
+import { getSongById, getAllSongs, Song } from "../../config/songs";
+import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong, NoteData } from "../../utils/data/errorHandler";
+import { createNotePool, createHoldNotePool, ObjectPool } from "../../utils/game/objectPool";
+import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
 import { 
   getAudioOffset, 
   getAccurateGameTime, 
   isAudioReady, 
   waitForAudioReady,
   parseBPMChanges,
-  getCurrentBPM
-} from "../../utils/audio/audioSync.js";
-import { getThemeColors } from "../../utils/ui/colorThemes.js";
-import { checkAchievements, getAchievement } from "../../utils/game/achievements.js";
+  getCurrentBPM,
+  BPMChange
+} from "../../utils/audio/audioSync";
+import { getThemeColors, ThemeColors } from "../../utils/ui/colorThemes";
+import { checkAchievements, getAchievement } from "../../utils/game/achievements";
+
+interface GameSceneData {
+  song?: string;
+  difficulty?: string;
+  [key: string]: any;
+}
+
+interface KeyLane {
+  x: number;
+  sprite: string;
+}
+
+interface GameplayLayout {
+  lanes: Record<string, KeyLane>;
+  gameplayStartX: number;
+  gameplayEndX: number;
+  gameplayWidth: number;
+  keySize: number;
+  spacing: number;
+}
+
+interface FallingNote extends Phaser.GameObjects.Image {
+  keyType: string;
+  isHold: boolean;
+  held?: boolean;
+  holdStartTime?: number | null;
+  holdStartAudioTime?: number;
+  holdDuration?: number;
+  missTriggered?: boolean;
+  holdBar?: Phaser.GameObjects.Rectangle;
+  spawnTime?: number;
+  trail?: any; // Phaser.GameObjects.Particles.ParticleEmitterManager
+  keySpriteHidden?: boolean;
+  keyRemoved?: boolean;
+  pooled?: boolean;
+  originalColor?: number;
+  holdBarStartY?: number;
+  requiredHoldEndTime?: number;
+}
 
 export default class GameScene extends Phaser.Scene {
-  constructor(config) {
+  // Game state
+  protected currentSongId: string = "";
+  protected currentDifficulty: DifficultyLevel = DIFFICULTY_LEVELS.NORMAL;
+  protected songData: NoteData[] = [];
+  protected currentNoteIndex: number = 0;
+  protected startTime: number = 0;
+  protected audioStartTime: number = 0;
+  protected audioOffset: number = 0;
+  protected bpmChanges: BPMChange[] = [];
+  protected baseBPM: number = 120;
+  protected themeColors: ThemeColors = getThemeColors();
+  
+  // Gameplay constants
+  protected FALL_TIME: number = 2.0;
+  protected PIXELS_PER_SECOND: number = 0;
+  protected JUDGMENT_Y: number = 0;
+  protected perfectMargin: number = 15;
+  protected goodMargin: number = 40;
+  
+  // Layout
+  protected keyLanes: Record<string, KeyLane> = {};
+  protected gameplayLayout?: GameplayLayout;
+  
+  // Visual elements
+  protected backgroundImage?: Phaser.GameObjects.Image;
+  protected backgroundRect?: Phaser.GameObjects.Rectangle;
+  protected dimOverlay?: Phaser.GameObjects.Rectangle;
+  protected judgmentLine?: Phaser.GameObjects.Graphics;
+  protected scoreText?: Phaser.GameObjects.Text;
+  protected comboText?: Phaser.GameObjects.Text;
+  protected comboMultiplierText?: Phaser.GameObjects.Text;
+  protected feedbackText?: Phaser.GameObjects.Text;
+  protected keyVisuals: Record<string, Phaser.GameObjects.Image> = {};
+  protected keyGlows: Record<string, Phaser.GameObjects.Arc> = {};
+  
+  // Game state
+  protected score: number = 0;
+  protected longestStreak: number = 0;
+  protected currentStreak: number = 0;
+  protected totalNotes: number = 0;
+  protected notesHit: number = 0;
+  protected failed: boolean = false;
+  protected perfectCount: number = 0;
+  protected goodCount: number = 0;
+  protected missCount: number = 0;
+  protected comboHistory: number[] = [];
+  protected currentComboStart: number | null = null;
+  protected comboMasterUnlocked: boolean = false;
+  protected lastMilestone: number = 0;
+  
+  // Notes and pools
+  protected fallingKeys: FallingNote[] = [];
+  protected keysPressed: Record<string, boolean> = {};
+  protected notePools: Record<string, ObjectPool<Phaser.GameObjects.Image>> = {};
+  protected holdNotePool?: ObjectPool<Phaser.GameObjects.Rectangle>;
+  
+  // Audio
+  protected music?: Phaser.Sound.BaseSound;
+  protected audioReady: boolean = false;
+  protected musicStarted: boolean = false;
+  
+  // Performance
+  protected screenHeight: number = 0;
+  protected cullMargin: number = 0;
+  
+  // Pause state
+  protected isPaused: boolean = false;
+  protected pauseMenu: {
+    overlay?: Phaser.GameObjects.Rectangle;
+    title?: Phaser.GameObjects.Text;
+    resumeButton?: Phaser.GameObjects.Text;
+    resumeText?: Phaser.GameObjects.Text;
+    quitButton?: Phaser.GameObjects.Text;
+    quitText?: Phaser.GameObjects.Text;
+  } | null = null;
+  protected lastScore: number = 0;
+
+  constructor(config?: Phaser.Types.Scenes.SettingsConfig) {
     // Accept config parameter to allow child classes to override the key
     const sceneConfig = config || { key: "GameScene" };
     if (!sceneConfig.key) {
@@ -25,7 +142,7 @@ export default class GameScene extends Phaser.Scene {
     super(sceneConfig);
   }
 
-  create(data) {
+  create(data?: GameSceneData): void {
     const { width, height } = this.scale;
 
     // Get song ID from scene data or default to first song
@@ -66,7 +183,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Store song info for debrief scene
     this.currentSongId = songId;
-    this.currentDifficulty = difficulty;
+    this.currentDifficulty = difficulty as DifficultyLevel;
 
     // Synchronization constants - FALL_TIME always stays 2.0s to maintain sync
     const FALL_TIME = 2.0; // seconds - time for notes to fall from top to judgment line (ALWAYS CONSTANT)
@@ -225,14 +342,14 @@ export default class GameScene extends Phaser.Scene {
 
     this.scoreText = this.add.text(scoreX, scoreY, "Score: 0", { 
       fontSize: scoreFontSize, 
-      fill: "#fff" 
+      color: "#fff" 
     });
 
     // Combo counter - positioned below score
     const comboY = scoreY + getResponsiveSpacing(35, height);
     this.comboText = this.add.text(scoreX, comboY, "", {
       fontSize: getResponsiveFontSize(20, width, 16, 24),
-      fill: "#ffff00",
+      color: "#ffff00",
       fontStyle: "bold",
       fontFamily: "'Orbitron', 'Arial', sans-serif"
     }).setAlpha(0); // Hidden until combo starts
@@ -240,7 +357,7 @@ export default class GameScene extends Phaser.Scene {
     // Combo multiplier text (shows multiplier when active)
     this.comboMultiplierText = this.add.text(scoreX, comboY + getResponsiveSpacing(30, height), "", {
       fontSize: getResponsiveFontSize(16, width, 12, 20),
-      fill: "#00ff00",
+      color: "#00ff00",
       fontStyle: "bold",
       fontFamily: "'Orbitron', 'Arial', sans-serif"
     }).setAlpha(0);
@@ -251,7 +368,7 @@ export default class GameScene extends Phaser.Scene {
     // Feedback Text (for "Perfect", "Good", "Miss")
     this.feedbackText = this.add.text(width / 2, height / 2, "", {
       fontSize: feedbackFontSize,
-      fill: "#fff",
+      color: "#fff",
       fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0);
 
@@ -365,7 +482,7 @@ export default class GameScene extends Phaser.Scene {
     });
   }
   
-  pauseGame() {
+  pauseGame(): void {
     if (this.isPaused || !this.musicStarted) return;
     
     this.isPaused = true;
@@ -378,7 +495,7 @@ export default class GameScene extends Phaser.Scene {
     this.createPauseMenu();
   }
   
-  resumeGame() {
+  resumeGame(): void {
     if (!this.isPaused) return;
     
     this.isPaused = false;
@@ -397,7 +514,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
   
-  createPauseMenu() {
+  createPauseMenu(): void {
     const { width, height } = this.scale;
     
     // Dark overlay
@@ -407,7 +524,7 @@ export default class GameScene extends Phaser.Scene {
     const titleSize = getResponsiveFontSize(48, width, 36, 60);
     const title = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), "PAUSED", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
     
@@ -415,7 +532,7 @@ export default class GameScene extends Phaser.Scene {
     const buttonSize = getResponsiveFontSize(24, width, 18, 30);
     const resumeButton = this.add.text(width / 2, height / 2, "Resume (ESC)", {
       fontSize: buttonSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: "#00aa00",
       padding: { x: 20, y: 10 }
     }).setOrigin(0.5).setInteractive();
@@ -427,7 +544,7 @@ export default class GameScene extends Phaser.Scene {
     // Quit button
     const quitButton = this.add.text(width / 2, height / 2 + getResponsiveSpacing(60, height), "Quit to Menu", {
       fontSize: buttonSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: "#aa0000",
       padding: { x: 20, y: 10 }
     }).setOrigin(0.5).setInteractive();
@@ -448,7 +565,7 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
-  handleKeyRelease(event) {
+  handleKeyRelease(event: KeyboardEvent): void {
     const keyReleased = event.key.toUpperCase();
     
     // Mark key as released
@@ -657,7 +774,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  spawnKey(key, isHoldNote, duration = 0) {
+  spawnKey(key: string, isHoldNote: boolean, duration: number = 0): void {
     if (!key) {
       return; // Skip notes with null key
     }
@@ -681,7 +798,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (isHoldNote) {
       // Hold notes: key sprite at top + tail bar connecting to judgment line
-      const keySprite = this.notePools[key].acquire();
+      const keySprite = this.notePools[key].acquire() as FallingNote;
       keySprite.setPosition(lane.x, 0);
       keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
       keySprite.setOrigin(0.5, 0.5);
@@ -736,7 +853,7 @@ export default class GameScene extends Phaser.Scene {
       this.fallingKeys.push(keySprite);
     } else {
       // Use object pool for regular notes
-      const keySprite = this.notePools[key].acquire();
+      const keySprite = this.notePools[key].acquire() as FallingNote;
       keySprite.setPosition(lane.x, 0);
       keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
       keySprite.setOrigin(0.5, 0.5);
@@ -776,7 +893,7 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} holdDuration - Hold duration in seconds
    * @returns {number} Tail height in pixels
    */
-  calculateTailHeight(holdDuration) {
+  calculateTailHeight(holdDuration: number): number {
     // Use a reasonable maximum tail height and scale accordingly
     const { height } = this.scale;
     const MAX_TAIL_HEIGHT = getResponsiveSpacing(200, height); // Maximum tail height
@@ -791,7 +908,7 @@ export default class GameScene extends Phaser.Scene {
    * Get current audio time in seconds
    * @returns {number} Current audio time
    */
-  getCurrentAudioTime() {
+  getCurrentAudioTime(): number {
     return getAccurateGameTime(
       this.music,
       this.time.now,
@@ -805,7 +922,7 @@ export default class GameScene extends Phaser.Scene {
    * @param {Object} note - The note object (key sprite)
    * @param {string} key - The key being held
    */
-  transformToHoldBar(note, key) {
+  transformToHoldBar(note: FallingNote, key: string): void {
     if (!note || !note.isHold || !note.holdBar) return;
     
     // Hide key sprite when pressed - it doesn't reappear
@@ -841,7 +958,7 @@ export default class GameScene extends Phaser.Scene {
   /**
    * Release a note back to its pool
    */
-  releaseNote(note) {
+  releaseNote(note: FallingNote): void {
   
     // Clean up trail effect if it exists
     if (note.trail) {
@@ -876,7 +993,7 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} height - Screen height
    * @returns {object} Layout object with gameplay area, key size, spacing, and lane positions
    */
-  calculateGameplayLayout(width, height) {
+  calculateGameplayLayout(width: number, height: number): GameplayLayout {
     // Define gameplay area constraints
     const maxGameplayWidth = 800; // Maximum width for gameplay area
     const minGameplayWidth = 400; // Minimum width for very small screens
@@ -931,7 +1048,7 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
-  handleResize(gameSize) {
+  handleResize(gameSize?: Phaser.Structs.Size): void {
     // Safety check: ensure scene is fully initialized
     if (!this.cameras || !this.cameras.main || !this.scale) {
       console.warn("[GameScene] Scene not fully initialized, skipping handleResize");
@@ -1084,7 +1201,7 @@ export default class GameScene extends Phaser.Scene {
     this.cullMargin = getResponsiveSpacing(100, height);
   }
 
-  shutdown() {
+  shutdown(): void {
     // Cleanup: Release all pooled objects when scene shuts down
     if (this.holdNotePool) {
       this.holdNotePool.releaseAll();
@@ -1106,7 +1223,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  update(time, delta) {
+  update(time: number, delta: number): void {
     // Don't update if music hasn't started yet or if paused
     if (!this.musicStarted || this.isPaused) {
       return;
@@ -1526,7 +1643,7 @@ export default class GameScene extends Phaser.Scene {
  * @param {boolean} isHold - Whether this is a hold note
  */
 
-  animateKeyPress(key, quality = "good", isHold = false) {
+  animateKeyPress(key: string, quality: string = "good", isHold: boolean = false): void {
     // Hold notes are handled separately - skip them here
     if (isHold) {
       return;
@@ -1614,7 +1731,7 @@ export default class GameScene extends Phaser.Scene {
    * Animate key release (for hold notes)
    * @param {string} key - The key that was released
    */
-  animateKeyRelease(key) {
+  animateKeyRelease(key: string): void {
     if (!this.keyVisuals[key]) return;
     
     const keyVisual = this.keyVisuals[key];
@@ -1655,7 +1772,7 @@ export default class GameScene extends Phaser.Scene {
    * Stop pulsing animation for hold notes
    * @param {string} key - The key that was released
    */
-  stopHoldPulse(key) {
+  stopHoldPulse(key: string): void {
     if (!this.keyVisuals[key]) return;
     
     const keyVisual = this.keyVisuals[key];
@@ -1668,7 +1785,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  updateScore(newScore) {
+  updateScore(newScore: number): void {
     // Animate score change
     if (newScore !== this.lastScore) {
       const scoreDiff = newScore - this.lastScore;
@@ -1693,7 +1810,7 @@ export default class GameScene extends Phaser.Scene {
         const scoreY = getResponsiveSpacing(20, height);
         const gainText = this.add.text(scoreX + 150, scoreY, `+${scoreDiff}`, {
           fontSize: getResponsiveFontSize(28, width, 22, 34), // Increased from 18, 14, 22
-          fill: Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba,
+          color: Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba,
           fontStyle: "bold"
         });
         
@@ -1715,7 +1832,7 @@ export default class GameScene extends Phaser.Scene {
    * Create particle effects for perfect hits
    * @param {string} key - The key that was pressed
    */
-  createPerfectHitParticles(key) {
+  createPerfectHitParticles(key: string): void {
     if (!this.keyLanes[key]) return;
     
     const { width, height } = this.scale;
@@ -1743,7 +1860,7 @@ export default class GameScene extends Phaser.Scene {
    * Update combo display with visual feedback
    * @param {number} combo - Current combo count
    */
-  updateComboDisplay(combo) {
+  updateComboDisplay(combo: number): void {
     if (combo === 0) {
       // Hide combo display when combo is broken
       this.tweens.add({
@@ -1768,8 +1885,10 @@ export default class GameScene extends Phaser.Scene {
 
     // Calculate dynamic font size based on combo (grows with combo)
     const { width } = this.scale;
-    const baseSize = getResponsiveFontSize(20, width, 16, 24);
-    const maxSize = getResponsiveFontSize(48, width, 36, 60);
+    const baseSizeStr = getResponsiveFontSize(20, width, 16, 24);
+    const maxSizeStr = getResponsiveFontSize(48, width, 36, 60);
+    const baseSize = parseFloat(baseSizeStr);
+    const maxSize = parseFloat(maxSizeStr);
     // Scale from baseSize to maxSize based on combo (capped at 100x for max size)
     const comboScale = Math.min(combo / 100, 1);
     const dynamicSize = baseSize + (maxSize - baseSize) * comboScale;
@@ -1803,7 +1922,7 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} combo - Current combo count
    * @returns {number} Multiplier value
    */
-  getComboMultiplier(combo) {
+  getComboMultiplier(combo: number): number {
     if (combo >= 100) return 2.5;
     if (combo >= 50) return 2.0;
     if (combo >= 10) return 1.5;
@@ -1814,7 +1933,7 @@ export default class GameScene extends Phaser.Scene {
    * Check and trigger milestone combo effects
    * @param {number} combo - Current combo count
    */
-  checkMilestoneCombo(combo) {
+  checkMilestoneCombo(combo: number): void {
     const milestones = [2, 5, 10]; // Changed from [10, 50, 100] - first shake at 25 instead of 10
     // Or if you want fewer shakes: const milestones = [50, 100];
     // Or if you want more frequent: const milestones = [5, 10, 25, 50, 100];
@@ -1832,7 +1951,7 @@ export default class GameScene extends Phaser.Scene {
    * Trigger visual effects for milestone combos
    * @param {number} milestone - Milestone value (10, 50, or 100)
    */
-  triggerMilestoneEffect(milestone) {
+  triggerMilestoneEffect(milestone: number): void {
     const { width, height } = this.scale;
     
     // Screen flash effect
@@ -1860,7 +1979,7 @@ export default class GameScene extends Phaser.Scene {
     const milestoneText = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), 
       `${milestone}x COMBO!`, {
       fontSize: getResponsiveFontSize(64, width, 48, 80),
-      fill: "#ffff00",
+      color: "#ffff00",
       fontStyle: "bold",
       fontFamily: "'Orbitron', 'Arial', sans-serif",
       stroke: "#000000",
@@ -1907,7 +2026,7 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  handlePlayerInput(event) {
+  handlePlayerInput(event: KeyboardEvent): void {
     const keyPressed = event.key.toUpperCase();
     const perfectMargin = this.perfectMargin || 15;
     const goodMargin = this.goodMargin || 40;
@@ -2051,7 +2170,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
   
-  showAchievementNotification(achievementId) {
+  showAchievementNotification(achievementId: string): void {
     const achievement = getAchievement(achievementId);
     if (!achievement) return;
     
@@ -2090,7 +2209,7 @@ export default class GameScene extends Phaser.Scene {
       "Achievement!",
       {
         fontSize: getResponsiveFontSize(18, width, 14, 22),
-        fill: "#00ff00",
+        color: "#00ff00",
         fontStyle: "bold",
         fontFamily: "'Orbitron', 'Arial', sans-serif"
       }
@@ -2103,7 +2222,7 @@ export default class GameScene extends Phaser.Scene {
       achievement.name,
       {
         fontSize: getResponsiveFontSize(16, width, 12, 20),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }
     ).setOrigin(0.5).setDepth(1001);

@@ -5,20 +5,27 @@ import {
   getResponsiveButtonSize,
   getResponsiveSpacing,
   getResponsiveFontSize
-} from "../../utils/ui/responsive.js";
+} from "../../utils/ui/responsive";
 
 export default class AboutUsScene extends Phaser.Scene {
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private backgroundRect?: Phaser.GameObjects.Rectangle;
+  private titleText?: Phaser.GameObjects.Text;
+  private text1?: Phaser.GameObjects.Text;
+  private text2?: Phaser.GameObjects.Text;
+  private backButton?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "AboutUsScene" });
   }
 
-  create() {
+  create(): void {
     this.setupUI();
     // Listen for resize events
     this.scale.on('resize', this.handleResize, this);
   }
 
-  setupUI() {
+  private setupUI(): void {
     const { width, height } = this.scale;
 
     // Safety check: ensure scene is fully initialized
@@ -60,21 +67,21 @@ export default class AboutUsScene extends Phaser.Scene {
     // Scene Title
     this.titleText = this.add.text(width / 2, titleY, "About Us", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
     // About Us Text
     this.text1 = this.add.text(width / 2, textY1, "Crypto Beats is a rhythm game where you play along with music!", {
       fontSize: bodySize,
-      fill: "#ffffff",
+      color: "#ffffff",
       align: "center",
       wordWrap: { width: width * 0.8 }
     }).setOrigin(0.5);
 
     this.text2 = this.add.text(width / 2, textY2, "Developed by passionate game creators.", {
       fontSize: smallSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       align: "center",
       wordWrap: { width: width * 0.8 }
     }).setOrigin(0.5);
@@ -82,7 +89,7 @@ export default class AboutUsScene extends Phaser.Scene {
     // Back Button
     this.backButton = this.add.text(width / 2, backButtonY, "Back", {
       fontSize: buttonSize.fontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: "#555",
       padding: buttonSize.padding
     }).setOrigin(0.5).setInteractive();
@@ -92,8 +99,9 @@ export default class AboutUsScene extends Phaser.Scene {
     });
   }
 
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Recreate UI with new dimensions
     this.setupUI();
   }
 }
+

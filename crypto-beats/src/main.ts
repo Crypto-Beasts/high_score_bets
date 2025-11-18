@@ -1,23 +1,23 @@
 import Phaser from "phaser";
 // Gameplay scenes
-import GameScene from "./scenes/gameplay/GameScene.js";
-import DebriefScene from "./scenes/gameplay/DebriefScene.js";
-import MultiplayerGameScene from "./scenes/gameplay/MultiplayerGameScene.js";
-import MultiplayerDebriefScene from "./scenes/gameplay/MultiplayerDebriefScene.js";
+import GameScene from "./scenes/gameplay/GameScene";
+import DebriefScene from "./scenes/gameplay/DebriefScene";
+import MultiplayerGameScene from "./scenes/gameplay/MultiplayerGameScene";
+import MultiplayerDebriefScene from "./scenes/gameplay/MultiplayerDebriefScene";
 // Menu scenes
-import LoadingScene from "./scenes/menus/LoadingScene.js";
-import MainMenuScene from "./scenes/menus/MainMenuScene.js";
-import SongSelectionScene from "./scenes/menus/SongSelectionScene.js";
-import MultiplayerLobbyScene from "./scenes/menus/MultiplayerLobbyScene.js";
-import AboutUsScene from "./scenes/menus/AboutUsScene.js";
+import LoadingScene from "./scenes/menus/LoadingScene";
+import MainMenuScene from "./scenes/menus/MainMenuScene";
+import SongSelectionScene from "./scenes/menus/SongSelectionScene";
+import MultiplayerLobbyScene from "./scenes/menus/MultiplayerLobbyScene";
+import AboutUsScene from "./scenes/menus/AboutUsScene";
 // Settings scenes
-import AudioCalibrationScene from "./scenes/settings/AudioCalibrationScene.js";
-import ThemeSelectionScene from "./scenes/settings/ThemeSelectionScene.js";
-import AchievementsScene from "./scenes/settings/AchievementsScene.js";
+import AudioCalibrationScene from "./scenes/settings/AudioCalibrationScene";
+import ThemeSelectionScene from "./scenes/settings/ThemeSelectionScene";
+import AchievementsScene from "./scenes/settings/AchievementsScene";
 // UI scenes
-import UIOverlayScene from "./scenes/ui/UIOverlayScene.js";
+import UIOverlayScene from "./scenes/ui/UIOverlayScene";
 
-const config = {
+const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container', // Attach to container
   width: window.innerWidth || 1920,
@@ -33,10 +33,12 @@ const config = {
 const game = new Phaser.Game(config);
 
 // Handle window resize - game automatically fills the window
-let resizeTimeout;
+let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 window.addEventListener('resize', () => {
   // Debounce resize events for better performance
-  clearTimeout(resizeTimeout);
+  if (resizeTimeout) {
+    clearTimeout(resizeTimeout);
+  }
   resizeTimeout = setTimeout(() => {
     const newWidth = window.innerWidth || 1920;
     const newHeight = window.innerHeight || 1080;
@@ -56,13 +58,13 @@ window.addEventListener('resize', () => {
         }
       });
       
-      if (activeScene && typeof activeScene.handleResize === 'function') {
+      if (activeScene && typeof (activeScene as any).handleResize === 'function') {
         // Additional safety check: ensure scene has required properties
-        if (activeScene.cameras && activeScene.scale) {
+        if ((activeScene as any).cameras && (activeScene as any).scale) {
           try {
-            activeScene.handleResize({ width: newWidth, height: newHeight });
+            (activeScene as any).handleResize({ width: newWidth, height: newHeight });
           } catch (error) {
-            console.warn(`[Resize] Error in ${activeScene.scene?.key || 'unknown'} handleResize:`, error);
+            console.warn(`[Resize] Error in ${(activeScene as any).scene?.key || 'unknown'} handleResize:`, error);
           }
         }
       }
@@ -72,3 +74,4 @@ window.addEventListener('resize', () => {
 
 // Start the UIOverlayScene and keep it active across all scenes
 // game.scene.start("UIOverlayScene");
+

@@ -2,8 +2,26 @@
  * Object Pool for game objects to reduce memory allocations
  */
 
-export class ObjectPool {
-  constructor(createFn, resetFn, initialSize = 10) {
+import Phaser from "phaser";
+
+export interface PoolStats {
+  pooled: number;
+  active: number;
+  total: number;
+}
+
+export class ObjectPool<T> {
+  private createFn: () => T;
+  private resetFn: ((obj: T) => void) | null;
+  private pool: T[];
+  private active: Set<T>;
+  private initialSize: number;
+
+  constructor(
+    createFn: () => T,
+    resetFn: ((obj: T) => void) | null = null,
+    initialSize: number = 10
+  ) {
     this.createFn = createFn; // Function to create new objects
     this.resetFn = resetFn; // Function to reset objects before reuse
     this.pool = [];
@@ -18,13 +36,13 @@ export class ObjectPool {
 
   /**
    * Get an object from the pool
-   * @returns {Object} Pooled object
+   * @returns Pooled object
    */
-  acquire() {
-    let obj;
+  acquire(): T {
+    let obj: T;
     
     if (this.pool.length > 0) {
-      obj = this.pool.pop();
+      obj = this.pool.pop()!;
     } else {
       // Pool exhausted, create new object
       obj = this.createFn();
@@ -36,9 +54,9 @@ export class ObjectPool {
 
   /**
    * Return an object to the pool
-   * @param {Object} obj - Object to return
+   * @param obj - Object to return
    */
-  release(obj) {
+  release(obj: T): void {
     if (!this.active.has(obj)) {
       return; // Already released or not from this pool
     }
@@ -57,16 +75,16 @@ export class ObjectPool {
   /**
    * Release all active objects
    */
-  releaseAll() {
+  releaseAll(): void {
     const activeArray = Array.from(this.active);
     activeArray.forEach(obj => this.release(obj));
   }
 
   /**
    * Get pool statistics
-   * @returns {{pooled: number, active: number, total: number}}
+   * @returns Pool statistics
    */
-  getStats() {
+  getStats(): PoolStats {
     return {
       pooled: this.pool.length,
       active: this.active.size,
@@ -77,7 +95,7 @@ export class ObjectPool {
   /**
    * Clear the pool
    */
-  clear() {
+  clear(): void {
     this.pool = [];
     this.active.clear();
   }
@@ -85,13 +103,17 @@ export class ObjectPool {
 
 /**
  * Create a pool for note sprites
- * @param {Phaser.Scene} scene - The scene to create sprites in
- * @param {string} spriteKey - The sprite key to use
- * @param {number} initialSize - Initial pool size
- * @returns {ObjectPool}
+ * @param scene - The scene to create sprites in
+ * @param spriteKey - The sprite key to use
+ * @param initialSize - Initial pool size
+ * @returns Object pool for note sprites
  */
-export function createNotePool(scene, spriteKey, initialSize = 20) {
-  return new ObjectPool(
+export function createNotePool(
+  scene: Phaser.Scene,
+  spriteKey: string,
+  initialSize: number = 20
+): ObjectPool<Phaser.GameObjects.Image> {
+  return new ObjectPool<Phaser.GameObjects.Image>(
     () => {
       // Create function - create a new sprite (not added to scene yet)
       const sprite = scene.add.image(0, 0, spriteKey);
@@ -116,12 +138,15 @@ export function createNotePool(scene, spriteKey, initialSize = 20) {
 
 /**
  * Create a pool for hold note rectangles
- * @param {Phaser.Scene} scene - The scene to create rectangles in
- * @param {number} initialSize - Initial pool size
- * @returns {ObjectPool}
+ * @param scene - The scene to create rectangles in
+ * @param initialSize - Initial pool size
+ * @returns Object pool for hold note rectangles
  */
-export function createHoldNotePool(scene, initialSize = 10) {
-  return new ObjectPool(
+export function createHoldNotePool(
+  scene: Phaser.Scene,
+  initialSize: number = 10
+): ObjectPool<Phaser.GameObjects.Rectangle> {
+  return new ObjectPool<Phaser.GameObjects.Rectangle>(
     () => {
       // Create function - create a new rectangle (not added to scene yet)
       const rect = scene.add.rectangle(0, 0, 20, 100, 0xffffff);

@@ -3,30 +3,66 @@
  * Simulates opponent's gameplay on a mini view
  */
 
-import { getResponsiveSpacing, getResponsiveFontSize } from "../../utils/ui/responsive.js";
+import Phaser from "phaser";
+import { getResponsiveSpacing, getResponsiveFontSize } from "../../utils/ui/responsive";
+
+interface OpponentViewArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface OpponentInputData {
+  key: string;
+  timestamp?: number;
+  noteTime?: number;
+  quality: string;
+}
+
+interface OpponentNoteData {
+  key: string;
+  time: number;
+  isHold?: boolean;
+  duration?: number;
+}
+
+interface KeyLane {
+  x: number;
+  sprite: string;
+}
+
+interface OpponentNote extends Phaser.GameObjects.Arc {
+  keyType: string;
+  isHold: boolean;
+  spawnTime: number;
+  originalY: number;
+}
 
 export class OpponentReplaySystem {
-  constructor(scene, opponentViewArea) {
+  private scene: Phaser.Scene;
+  private viewArea: OpponentViewArea;
+  public opponentNotes: OpponentNote[] = [];
+  public opponentKeyVisuals: Record<string, Phaser.GameObjects.Image> = {};
+  private opponentScore: number = 0;
+  private opponentCombo: number = 0;
+  private opponentNotePools: Record<string, any> = {};
+  private scale: number = 0.4;
+  public background?: Phaser.GameObjects.Rectangle;
+  public titleText?: Phaser.GameObjects.Text;
+  private judgmentY: number = 0;
+  public judgmentLine?: Phaser.GameObjects.Graphics;
+  private keyLanes: Record<string, KeyLane> = {};
+
+  constructor(scene: Phaser.Scene, opponentViewArea: OpponentViewArea) {
     this.scene = scene;
-    this.viewArea = opponentViewArea; // {x, y, width, height}
-    
-    // Opponent's game state
-    this.opponentNotes = []; // Notes currently falling
-    this.opponentKeyVisuals = {}; // Key press visuals
-    this.opponentScore = 0;
-    this.opponentCombo = 0;
-    
-    // Note pools for opponent (reuse from main game)
-    this.opponentNotePools = {};
-    
-    // Scale factor for mini view
-    this.scale = 0.4; // 40% size
+    this.viewArea = opponentViewArea;
     
     // Initialize
     this.initialize();
   }
   
-  initialize() {
+  private initialize(): void {
     const { x, y, width, height } = this.viewArea;
     
     // Create background for opponent view
@@ -46,7 +82,7 @@ export class OpponentReplaySystem {
       "OPPONENT",
       {
         fontSize: getResponsiveFontSize(14, width, 12, 18),
-        fill: "#ff0000",
+        color: "#ff0000",
         fontStyle: "bold"
       }
     ).setOrigin(0.5, 0).setDepth(91);
@@ -71,8 +107,8 @@ export class OpponentReplaySystem {
     this.setupKeyVisuals();
   }
   
-  setupKeyLanes() {
-    const { x, y, width, height } = this.viewArea;
+  private setupKeyLanes(): void {
+    const { x, width } = this.viewArea;
     const laneSpacing = width / 5;
     const startX = x + laneSpacing;
     
@@ -84,12 +120,12 @@ export class OpponentReplaySystem {
     };
   }
   
-  setupKeyVisuals() {
+  private setupKeyVisuals(): void {
     const { x, y, width, height } = this.viewArea;
     const keySize = getResponsiveSpacing(20, width) * this.scale;
     const keyY = y + height - getResponsiveSpacing(20, height);
     
-    for (let key in this.keyLanes) {
+    for (const key in this.keyLanes) {
       const keyVisual = this.scene.add.image(
         this.keyLanes[key].x,
         keyY,
@@ -104,9 +140,8 @@ export class OpponentReplaySystem {
   
   /**
    * Handle opponent input event
-   * @param {Object} inputData - {key, timestamp, noteTime, quality}
    */
-  handleOpponentInput(inputData) {
+  handleOpponentInput(inputData: OpponentInputData): void {
     const { key, quality } = inputData;
     
     // Animate key press
@@ -118,9 +153,8 @@ export class OpponentReplaySystem {
   
   /**
    * Spawn note for opponent (when they receive a note)
-   * @param {Object} noteData - {key, time, isHold, duration}
    */
-  spawnOpponentNote(noteData) {
+  spawnOpponentNote(noteData: OpponentNoteData): void {
     const key = noteData.key.toUpperCase();
     const lane = this.keyLanes[key];
     
@@ -134,7 +168,7 @@ export class OpponentReplaySystem {
       noteSize / 2,
       0xff0000, // Red for opponent
       0.7
-    );
+    ) as OpponentNote;
     
     note.setDepth(92);
     note.keyType = key;
@@ -147,10 +181,8 @@ export class OpponentReplaySystem {
   
   /**
    * Update opponent notes (move them down)
-   * @param {number} delta - Time delta in ms
-   * @param {number} pixelsPerSecond - Note speed
    */
-  updateOpponentNotes(delta, pixelsPerSecond) {
+  updateOpponentNotes(delta: number, pixelsPerSecond: number): void {
     const deltaSeconds = delta / 1000;
     const movementDelta = pixelsPerSecond * deltaSeconds;
     
@@ -171,7 +203,7 @@ export class OpponentReplaySystem {
   /**
    * Animate key press for opponent
    */
-  animateKeyPress(key, quality) {
+  private animateKeyPress(key: string, quality: string): void {
     const keyVisual = this.opponentKeyVisuals[key];
     if (!keyVisual) return;
     
@@ -199,7 +231,7 @@ export class OpponentReplaySystem {
   /**
    * Show feedback for opponent's hit
    */
-  showFeedback(quality, key) {
+  private showFeedback(quality: string, key: string): void {
     const lane = this.keyLanes[key];
     if (!lane) return;
     
@@ -209,7 +241,7 @@ export class OpponentReplaySystem {
       quality.toUpperCase(),
       {
         fontSize: getResponsiveFontSize(12, this.viewArea.width, 10, 16),
-        fill: quality === "perfect" ? "#00ff00" : quality === "good" ? "#ffff00" : "#ff0000",
+        color: quality === "perfect" ? "#00ff00" : quality === "good" ? "#ffff00" : "#ff0000",
         fontStyle: "bold"
       }
     ).setOrigin(0.5, 0.5).setDepth(93);
@@ -227,7 +259,7 @@ export class OpponentReplaySystem {
   /**
    * Update opponent score display
    */
-  updateScore(score, combo) {
+  updateScore(score: number, combo: number): void {
     this.opponentScore = score;
     this.opponentCombo = combo;
     
@@ -238,7 +270,7 @@ export class OpponentReplaySystem {
   /**
    * Cleanup
    */
-  destroy() {
+  destroy(): void {
     // Clean up all notes
     this.opponentNotes.forEach(note => note.destroy());
     this.opponentNotes = [];

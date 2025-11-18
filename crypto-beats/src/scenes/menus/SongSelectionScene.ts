@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager.js";
-import { getAllSongs, getSongById } from "../../config/songs.js";
+import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG, DifficultyLevel } from "../../utils/game/difficultyManager";
+import { getAllSongs, getSongById, Song } from "../../config/songs";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -8,19 +8,59 @@ import {
   getResponsiveCardSize,
   getResponsiveSpacing,
   getResponsivePadding,
-  getResponsiveFontSize
-} from "../../utils/ui/responsive.js";
+  getResponsiveFontSize,
+  CardDimensions
+} from "../../utils/ui/responsive";
+
+interface BorderProps {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface SongCard {
+  background: Phaser.GameObjects.Rectangle | null;
+  border: Phaser.GameObjects.Graphics | null;
+  borderProps: BorderProps | null;
+  cover: Phaser.GameObjects.Image | null;
+  coverBg?: Phaser.GameObjects.Rectangle;
+  musicIcon?: Phaser.GameObjects.Text;
+  title: Phaser.GameObjects.Text | null;
+  artist: Phaser.GameObjects.Text | null;
+  info: Phaser.GameObjects.Text | null;
+  bpm: Phaser.GameObjects.Text | null;
+  difficultyIcons?: Phaser.GameObjects.Arc[];
+  songId?: string;
+}
 
 export default class SongSelectionScene extends Phaser.Scene {
+  private selectedSong: string | null = null;
+  private selectedMusic: Phaser.Sound.BaseSound | null = null;
+  private selectedDifficulty: DifficultyLevel = DIFFICULTY_LEVELS.NORMAL;
+  private songCards: SongCard[] = [];
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private backgroundRect?: Phaser.GameObjects.Rectangle;
+  private titleText?: Phaser.GameObjects.Text;
+  private songCountText?: Phaser.GameObjects.Text;
+  private difficultyTitleText?: Phaser.GameObjects.Text;
+  private easyButton?: Phaser.GameObjects.Text;
+  private normalButton?: Phaser.GameObjects.Text;
+  private hardButton?: Phaser.GameObjects.Text;
+  private readyButton?: Phaser.GameObjects.Rectangle;
+  private readyText?: Phaser.GameObjects.Text;
+  private backButton?: Phaser.GameObjects.Rectangle;
+  private backText?: Phaser.GameObjects.Text;
+  private scrollUpIndicator?: Phaser.GameObjects.Text;
+  private scrollDownIndicator?: Phaser.GameObjects.Text;
+  private cardStartY?: number;
+  private cardSize?: CardDimensions;
+
   constructor() {
     super({ key: "SongSelectionScene" });
-    this.selectedSong = null;
-    this.selectedMusic = null;
-    this.selectedDifficulty = DIFFICULTY_LEVELS.NORMAL;
-    this.songCards = []; // Store song card containers
   }
 
-  create() {
+  create(): void {
     this.setupUI();
     // Listen for resize events - use both scene scale and game scale
     this.scale.on('resize', this.handleResize, this);
@@ -30,7 +70,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     }
   }
 
-  setupUI() {
+  private setupUI(): void {
     const { width, height } = this.scale;
     
     // Safety check: ensure scene is fully initialized
@@ -46,8 +86,8 @@ export default class SongSelectionScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(0x000000);
 
     // Background fills screen
-    let backgroundImage = null;
-    let backgroundRect = null;
+    let backgroundImage: Phaser.GameObjects.Image | null = null;
+    let backgroundRect: Phaser.GameObjects.Rectangle | null = null;
     
     // Safety check: ensure textures exist and are valid before using them
     if (this.textures && this.textures.exists && this.textures.exists("background")) {
@@ -86,7 +126,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Scene Title with better styling
     const title = this.add.text(width / 2, titleY, "Select a Song", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold",
       stroke: "#000000",
       strokeThickness: Math.max(2, Math.round(4 * (width / 1920)))
@@ -97,7 +137,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     const songCountText = this.add.text(width / 2, titleY + getResponsiveSpacing(40, height), 
       `${songs.length} ${songs.length === 1 ? 'song' : 'songs'} available`, {
       fontSize: getResponsiveFontSize(16, width, 12, 20),
-      fill: "#aaaaaa",
+      color: "#aaaaaa",
       fontStyle: "italic"
     }).setOrigin(0.5);
     this.songCountText = songCountText;
@@ -105,20 +145,26 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Difficulty Selection Section
     const difficultyTitle = this.add.text(width / 2, difficultyTitleY, "Difficulty", {
       fontSize: subtitleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
     // Difficulty selection function
-    const selectDifficulty = (difficulty, button) => {
+    const selectDifficulty = (difficulty: DifficultyLevel, button: Phaser.GameObjects.Text) => {
       this.selectedDifficulty = difficulty;
       // Reset all difficulty buttons
-      easyButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.EASY].color);
-      easyButton.setColor("#000000");
-      normalButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL].color);
-      normalButton.setColor("#000000");
-      hardButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.HARD].color);
-      hardButton.setColor("#ffffff");
+      if (this.easyButton) {
+        this.easyButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.EASY].color);
+        this.easyButton.setColor("#000000");
+      }
+      if (this.normalButton) {
+        this.normalButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL].color);
+        this.normalButton.setColor("#000000");
+      }
+      if (this.hardButton) {
+        this.hardButton.setBackgroundColor(DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.HARD].color);
+        this.hardButton.setColor("#ffffff");
+      }
       // Highlight selected
       button.setBackgroundColor("#ffffff");
       button.setColor("#000000");
@@ -127,34 +173,37 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Difficulty buttons with responsive sizing
     const difficultyPadding = getResponsivePadding(20, width, height);
 
-    let easyButton = this.add.text(width / 2 - difficultySpacing, difficultyY, "Easy", {
+    const easyButton = this.add.text(width / 2 - difficultySpacing, difficultyY, "Easy", {
       fontSize: bodySize,
-      fill: "#000000",
+      color: "#000000",
       backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.EASY].color,
       padding: difficultyPadding
     }).setOrigin(0.5).setInteractive();
+    this.easyButton = easyButton;
 
     easyButton.on("pointerdown", () => {
       selectDifficulty(DIFFICULTY_LEVELS.EASY, easyButton);
     });
 
-    let normalButton = this.add.text(width / 2, difficultyY, "Normal", {
+    const normalButton = this.add.text(width / 2, difficultyY, "Normal", {
       fontSize: bodySize,
-      fill: "#000000",
+      color: "#000000",
       backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL].color,
       padding: difficultyPadding
     }).setOrigin(0.5).setInteractive();
+    this.normalButton = normalButton;
 
     normalButton.on("pointerdown", () => {
       selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
     });
 
-    let hardButton = this.add.text(width / 2 + difficultySpacing, difficultyY, "Hard", {
+    const hardButton = this.add.text(width / 2 + difficultySpacing, difficultyY, "Hard", {
       fontSize: bodySize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.HARD].color,
       padding: difficultyPadding
     }).setOrigin(0.5).setInteractive();
+    this.hardButton = hardButton;
 
     hardButton.on("pointerdown", () => {
       selectDifficulty(DIFFICULTY_LEVELS.HARD, hardButton);
@@ -163,8 +212,8 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Highlight default (Normal)
     selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
     
-    // Song selection function (songs already declared above for song count)
-    const selectSong = (songId, cardContainer) => {
+    // Song selection function
+    const selectSong = (songId: string, cardContainer: SongCard) => {
       if (this.selectedMusic) {
         this.selectedMusic.stop();
       }
@@ -209,7 +258,9 @@ export default class SongSelectionScene extends Phaser.Scene {
 
     // Create song cards with responsive sizing
     const cardSize = getResponsiveCardSize(width, height);
+    this.cardSize = cardSize;
     const cardStartY = getResponsiveSpacing(250, height);
+    this.cardStartY = cardStartY;
     
     // Calculate if scrolling is needed
     const totalCardsHeight = songs.length * cardSize.spacing;
@@ -221,26 +272,24 @@ export default class SongSelectionScene extends Phaser.Scene {
     const maxScroll = Math.max(0, totalCardsHeight - availableHeight);
     
     // Add scroll indicators if needed
-    let scrollUpIndicator = null;
-    let scrollDownIndicator = null;
+    let scrollUpIndicator: Phaser.GameObjects.Text | null = null;
+    let scrollDownIndicator: Phaser.GameObjects.Text | null = null;
     if (needsScrolling) {
       // Scroll up indicator (top)
       scrollUpIndicator = this.add.text(width / 2, cardStartY - getResponsiveSpacing(20, height), "▲", {
         fontSize: getResponsiveFontSize(24, width, 18, 30),
-        fill: "#ffffff",
-        alpha: 0.5
-      }).setOrigin(0.5).setVisible(false);
+        color: "#ffffff"
+      }).setOrigin(0.5).setVisible(false).setAlpha(0.5);
       
       // Scroll down indicator (bottom)
       const scrollIndicatorY = height - getResponsiveSpacing(150, height);
       scrollDownIndicator = this.add.text(width / 2, scrollIndicatorY, "▼", {
         fontSize: getResponsiveFontSize(24, width, 18, 30),
-        fill: "#ffffff",
-        alpha: 0.5
-      }).setOrigin(0.5);
+        color: "#ffffff"
+      }).setOrigin(0.5).setAlpha(0.5);
       
       // Add scroll handlers
-      this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+      this.input.on('wheel', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number, deltaZ: number) => {
         scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - deltaY * 0.5));
         this.updateCardPositions(scrollOffset);
         this.updateScrollIndicators(scrollOffset, maxScroll);
@@ -252,10 +301,10 @@ export default class SongSelectionScene extends Phaser.Scene {
       const cardY = cardStartY + (index * cardSize.spacing) - scrollOffset;
       
       // Create card container
-      const cardContainer = {
+      const cardContainer: SongCard = {
         background: null,
         border: null,
-        borderProps: null, // Store border properties for redrawing
+        borderProps: null,
         cover: null,
         title: null,
         artist: null,
@@ -301,7 +350,7 @@ export default class SongSelectionScene extends Phaser.Scene {
       const iconSize = getResponsiveFontSize(48, width, 32, 64);
       const musicIcon = this.add.text(coverX, coverY, "♪", {
         fontSize: iconSize,
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }).setOrigin(0.5);
       cardContainer.musicIcon = musicIcon;
@@ -315,7 +364,7 @@ export default class SongSelectionScene extends Phaser.Scene {
         song.name,
         {
           fontSize: titleFontSize,
-          fill: "#ffffff",
+          color: "#ffffff",
           fontStyle: "bold"
         }
       );
@@ -327,7 +376,7 @@ export default class SongSelectionScene extends Phaser.Scene {
         song.artist || "Unknown Artist",
         {
           fontSize: artistFontSize,
-          fill: "#aaaaaa"
+          color: "#aaaaaa"
         }
       );
       
@@ -339,13 +388,13 @@ export default class SongSelectionScene extends Phaser.Scene {
         infoText,
         {
           fontSize: infoFontSize,
-          fill: "#888888"
+          color: "#888888"
         }
       );
       
       // Difficulty indicators - responsive
-      const difficultyIcons = [];
-      const diffColors = {
+      const difficultyIcons: Phaser.GameObjects.Arc[] = [];
+      const diffColors: Record<string, number> = {
         easy: 0x00ff00,
         normal: 0xffff00,
         hard: 0xff0000
@@ -355,7 +404,7 @@ export default class SongSelectionScene extends Phaser.Scene {
       const dotSpacing = getResponsiveSpacing(20, width);
       let diffX = coverX + coverSize / 2 + titleOffset;
       Object.keys(song.difficulties).forEach((diff, i) => {
-        if (song.difficulties[diff]) {
+        if (song.difficulties[diff as keyof typeof song.difficulties]) {
           const dot = this.add.circle(diffX + (i * dotSpacing), cardY + getResponsiveSpacing(45, height), dotSize, diffColors[diff]);
           difficultyIcons.push(dot);
         }
@@ -370,11 +419,13 @@ export default class SongSelectionScene extends Phaser.Scene {
       
       // Hover effect
       cardContainer.background.on("pointerover", () => {
-        cardContainer.background.setFillStyle(0x16213e, 0.9);
+        if (cardContainer.background) {
+          cardContainer.background.setFillStyle(0x16213e, 0.9);
+        }
       });
       
       cardContainer.background.on("pointerout", () => {
-        if (this.selectedSong !== song.id) {
+        if (this.selectedSong !== song.id && cardContainer.background) {
           cardContainer.background.setFillStyle(0x1a1a2e, 0.8);
         }
       });
@@ -394,13 +445,15 @@ export default class SongSelectionScene extends Phaser.Scene {
     const readyButton = this.add.rectangle(
       width / 2, readyButtonY, readyButtonWidth, readyButtonHeight, 0x00aa00, 1
     ).setInteractive();
+    this.readyButton = readyButton;
     
     const readyFontSize = getResponsiveFontSize(32, width, 24, 40);
     const readyText = this.add.text(width / 2, readyButtonY, "Ready", {
       fontSize: readyFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
+    this.readyText = readyText;
     
     readyButton.on("pointerdown", () => {
       if (this.selectedMusic) {
@@ -429,13 +482,15 @@ export default class SongSelectionScene extends Phaser.Scene {
     const backButton = this.add.rectangle(
       width / 2, backButtonY, backButtonWidth, backButtonHeight, 0x555555, 1
     ).setInteractive();
+    this.backButton = backButton;
     
     const backFontSize = getResponsiveFontSize(24, width, 18, 30);
     const backText = this.add.text(width / 2, backButtonY, "Back", {
       fontSize: backFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
+    this.backText = backText;
     
     backButton.on("pointerdown", () => {
       if (this.selectedMusic && this.selectedMusic.isPlaying) {
@@ -453,34 +508,28 @@ export default class SongSelectionScene extends Phaser.Scene {
     });
     
     // Store references for cleanup
-    this.backgroundImage = backgroundImage;
-    this.backgroundRect = backgroundRect;
+    this.backgroundImage = backgroundImage || undefined;
+    this.backgroundRect = backgroundRect || undefined;
     this.titleText = title;
     this.difficultyTitleText = difficultyTitle;
-    this.easyButton = easyButton;
-    this.normalButton = normalButton;
-    this.hardButton = hardButton;
-    this.readyButton = readyButton;
-    this.readyText = readyText;
-    this.backButton = backButton;
-    this.backText = backText;
-    this.scrollUpIndicator = scrollUpIndicator;
-    this.scrollDownIndicator = scrollDownIndicator;
+    this.scrollUpIndicator = scrollUpIndicator || undefined;
+    this.scrollDownIndicator = scrollDownIndicator || undefined;
   }
 
-  clearUI() {
+  private clearUI(): void {
     // Clear background
     if (this.backgroundImage) {
       this.backgroundImage.destroy();
-      this.backgroundImage = null;
+      this.backgroundImage = undefined;
     }
     if (this.backgroundRect) {
       this.backgroundRect.destroy();
-      this.backgroundRect = null;
+      this.backgroundRect = undefined;
     }
     
     // Clear text elements
     if (this.titleText) this.titleText.destroy();
+    if (this.songCountText) this.songCountText.destroy();
     if (this.difficultyTitleText) this.difficultyTitleText.destroy();
     if (this.easyButton) this.easyButton.destroy();
     if (this.normalButton) this.normalButton.destroy();
@@ -511,8 +560,10 @@ export default class SongSelectionScene extends Phaser.Scene {
     this.songCards = [];
   }
 
-  updateCardPositions(scrollOffset) {
+  private updateCardPositions(scrollOffset: number): void {
     const { width, height } = this.scale;
+    if (!this.cardStartY || !this.cardSize) return;
+    
     this.songCards.forEach((card, index) => {
       const baseY = this.cardStartY + (index * this.cardSize.spacing) - scrollOffset;
       const cardY = baseY;
@@ -556,7 +607,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     });
   }
 
-  updateScrollIndicators(scrollOffset, maxScroll) {
+  private updateScrollIndicators(scrollOffset: number, maxScroll: number): void {
     if (this.scrollUpIndicator) {
       this.scrollUpIndicator.setVisible(scrollOffset > 0);
     }
@@ -565,7 +616,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     }
   }
 
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Safety check: ensure scene is fully initialized
     if (!this.cameras || !this.cameras.main || !this.scale) {
       console.warn("[SongSelectionScene] Scene not fully initialized, skipping handleResize");
@@ -573,7 +624,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     }
     
     // Handle different parameter formats
-    let width, height;
+    let width: number, height: number;
     if (gameSize && gameSize.width && gameSize.height) {
       width = gameSize.width;
       height = gameSize.height;
@@ -695,3 +746,4 @@ export default class SongSelectionScene extends Phaser.Scene {
     }
   }
 }
+
