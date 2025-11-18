@@ -2,7 +2,27 @@
  * Song configuration for Crypto Beats
  * Add new songs here after converting MIDI files to JSON
  */
-export const SONGS = [
+
+export interface SongDifficulties {
+  easy: boolean;
+  normal: boolean;
+  hard: boolean;
+}
+
+export interface Song {
+  id: string;
+  name: string;
+  artist: string;
+  audioFile: string;
+  jsonFile: string;
+  coverImage: string | null;
+  bpm: number;
+  duration: number | null;
+  difficulties: SongDifficulties;
+  description: string;
+}
+
+export const SONGS: Song[] = [
   {
     id: "Aguado_Menuet_Aminor",
     name: "Aguado Menuet (A Minor)",
@@ -40,25 +60,25 @@ export const SONGS = [
 /**
  * Get song by ID
  */
-export function getSongById(songId) {
+export function getSongById(songId: string): Song {
   return SONGS.find(song => song.id === songId) || SONGS[0]; // Fallback to first song
 }
 
 /**
  * Get all available songs
  */
-export function getAllSongs() {
+export function getAllSongs(): Song[] {
   return SONGS;
 }
 
 /**
  * Check if a song supports a specific difficulty
  */
-export function songSupportsDifficulty(songId, difficulty) {
+export function songSupportsDifficulty(songId: string, difficulty: string): boolean {
   const song = getSongById(songId);
   if (!song) return false;
   
-  const difficultyMap = {
+  const difficultyMap: Record<string, keyof SongDifficulties> = {
     'easy': 'easy',
     'normal': 'normal',
     'hard': 'hard'
