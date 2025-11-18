@@ -537,12 +537,14 @@ export default class GameScene extends Phaser.Scene {
             
             // Stop hold pulse (clean up any tweens, but keep key in pressed state)
             this.stopHoldPulse(keyReleased);
-            // Key visual remains in pressed state until user physically releases the key
-            // Reset will happen in handleKeyRelease when key is actually released (lines 613-646)
+            
+            // FIX: Don't reset key visual here - it will be reset when key is actually released
+            // The key visual should stay pressed as long as the user is holding the key
+            // Since we're in handleKeyRelease, the key IS being released, so reset it below
             
             // Clean up hold bar
             if (note.holdBar) {
-              note.holdBar.setVisible(false); // Changed from key.holdBar to note.holdBar
+              note.holdBar.setVisible(false);
               this.holdNotePool.release(note.holdBar);
               note.holdBar = null;
             }
@@ -550,6 +552,22 @@ export default class GameScene extends Phaser.Scene {
             // Clean up - return to pool instead of destroying
             this.releaseNote(note);
             this.fallingKeys.splice(i, 1);
+            
+            // Now reset the key visual since the key is being released
+            const keyVisual = this.keyVisuals[keyReleased];
+            const glow = this.keyGlows[keyReleased];
+            if (keyVisual) {
+              this.tweens.killTweensOf(keyVisual);
+              keyVisual.setScale(1.0, 1.0);
+              keyVisual.clearTint();
+            }
+            if (glow) {
+              this.tweens.killTweensOf(glow);
+              glow.setVisible(false);
+              glow.setAlpha(0);
+              glow.setScale(1);
+            }
+            
             break;
           } else {
             // Hold was released too early (before 70% completion)
@@ -1279,37 +1297,115 @@ export default class GameScene extends Phaser.Scene {
               const expectedEndTime = holdStartAudioTime + requiredDuration;
               const durationTolerance = 0.1; // 100ms tolerance
               
-              // Only mark as miss if hold wasn't completed (released too early)
-              // If hold was completed, the note will be cleaned up in handleKeyRelease
-              // and the key will remain pressed until user releases it
-              if (currentAudioTime < expectedEndTime - durationTolerance) {
-                key.missTriggered = true;
-                const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-                this.stopHoldPulse(key.keyType);
-                // Reset key visual immediately without animation
-                const keyVisual = this.keyVisuals[key.keyType];
-                const glow = this.keyGlows[key.keyType];
-                if (keyVisual) {
-                  this.tweens.killTweensOf(keyVisual);
-                  keyVisual.setScale(1.0, 1.0);
-                  keyVisual.clearTint();
+              // Check if hold duration has completed
+              if (currentAudioTime >= expectedEndTime - durationTolerance) {
+                // Hold completed successfully - auto-complete it
+                // Check if key is still physically pressed
+                if (this.keysPressed[key.keyType]) {
+                  // Key is still pressed - keep visual pressed and auto-complete the hold
+                  const distance = Math.abs(key.y - this.JUDGMENT_Y);
+                  const perfectMargin = this.perfectMargin || 15;
+                  
+                  let score = 30;
+                  if (distance < perfectMargin && currentAudioTime >= expectedEndTime) {
+                    score = 40;
+                  } else if (currentAudioTime >= expectedEndTime * 0.7) {
+                    score = 30;
+                  } else {
+                    score = 20;
+                  }
+                  
+                  // Apply combo multiplier
+                  const comboMultiplier = this.getComboMultiplier(this.currentStreak);
+                  const multipliedScore = Math.floor(score * comboMultiplier);
+                  
+                  this.score += multipliedScore;
+                  this.notesHit++;
+                  this.currentStreak++;
+                  if (this.currentStreak > this.longestStreak) {
+                    this.longestStreak = this.currentStreak;
+                    
+                    if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
+                      const totalSongs = getAllSongs().length;
+                      const gameData = {
+                        accuracy: 0,
+                        grade: '',
+                        difficulty: this.currentDifficulty,
+                        longestStreak: this.longestStreak,
+                        failed: false,
+                        song: this.currentSongId
+                      };
+                      const newlyUnlocked = checkAchievements(gameData, totalSongs);
+                      if (newlyUnlocked.includes('combo_master')) {
+                        this.comboMasterUnlocked = true;
+                        this.showAchievementNotification('combo_master');
+                      }
+                    }
+                  }
+                  
+                  if (this.currentStreak === 1) {
+                    this.currentComboStart = this.time.now;
+                  }
+                  
+                  this.updateComboDisplay(this.currentStreak);
+                  this.updateScore(this.score);
+                  
+                  // Stop hold pulse but keep key visual pressed (since key is still held)
+                  this.stopHoldPulse(key.keyType);
+                  
+                  // Clean up hold bar
+                  if (key.holdBar) {
+                    key.holdBar.setVisible(false);
+                    this.holdNotePool.release(key.holdBar);
+                    key.holdBar = null;
+                  }
+                  
+                  // Clean up note but keep key visual pressed
+                  this.releaseNote(key);
+                  this.fallingKeys.splice(i, 1);
+                  
+                  // Key visual stays pressed because this.keysPressed[key.keyType] is still true
+                  // It will only reset when handleKeyRelease is called
+                  continue; // Skip to next note
+                } else {
+                  // Hold completed but key was released - this should be handled in handleKeyRelease
+                  // But if we're here, the note wasn't cleaned up yet, so mark it
+                  key.missTriggered = true;
                 }
-                if (glow) {
-                  this.tweens.killTweensOf(glow);
-                  glow.setVisible(false);
-                  glow.setAlpha(0);
-                  glow.setScale(1);
+              } else {
+                // Hold duration hasn't completed yet - check if key is still pressed
+                // Only mark as miss if key was released (not physically pressed)
+                if (!this.keysPressed[key.keyType]) {
+                  // Key was released too early - mark as miss
+                  key.missTriggered = true;
+                  const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
+                  this.stopHoldPulse(key.keyType);
+                  // Reset key visual immediately without animation
+                  const keyVisual = this.keyVisuals[key.keyType];
+                  const glow = this.keyGlows[key.keyType];
+                  if (keyVisual) {
+                    this.tweens.killTweensOf(keyVisual);
+                    keyVisual.setScale(1.0, 1.0);
+                    keyVisual.clearTint();
+                  }
+                  if (glow) {
+                    this.tweens.killTweensOf(glow);
+                    glow.setVisible(false);
+                    glow.setAlpha(0);
+                    glow.setScale(1);
+                  }
+                  
+                  this.missCount++;
+                  if (this.currentStreak > 0 && this.currentComboStart) {
+                    this.comboHistory.push(this.currentStreak);
+                    this.currentComboStart = null;
+                  }
+                  this.currentStreak = 0;
+                  this.lastMilestone = 0;
+                  this.failed = true;
+                  this.updateComboDisplay(0);
                 }
-                
-                this.missCount++;
-                if (this.currentStreak > 0 && this.currentComboStart) {
-                  this.comboHistory.push(this.currentStreak);
-                  this.currentComboStart = null;
-                }
-                this.currentStreak = 0;
-                this.lastMilestone = 0;
-                this.failed = true;
-                this.updateComboDisplay(0);
+                // If key is still pressed, don't reset visual - keep it pressed
               }
               // If hold was completed successfully, key stays pressed until user releases
             }
