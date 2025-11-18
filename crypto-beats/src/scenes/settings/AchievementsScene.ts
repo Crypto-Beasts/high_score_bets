@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getAllAchievements, getAchievementProgress } from "../../utils/game/achievements.js";
+import { getAllAchievements, getAchievementProgress, AchievementWithStatus } from "../../utils/game/achievements";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -8,14 +8,31 @@ import {
   getResponsiveSpacing,
   getResponsiveButtonSize,
   getResponsiveCardSize
-} from "../../utils/ui/responsive.js";
+} from "../../utils/ui/responsive";
+
+interface AchievementCard {
+  bg: Phaser.GameObjects.Rectangle;
+  icon: Phaser.GameObjects.Text;
+  name: Phaser.GameObjects.Text;
+  desc: Phaser.GameObjects.Text;
+  status: Phaser.GameObjects.Text;
+  dateText?: Phaser.GameObjects.Text;
+}
 
 export default class AchievementsScene extends Phaser.Scene {
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private achievementCards: AchievementCard[] = [];
+  private title?: Phaser.GameObjects.Text;
+  private progressText?: Phaser.GameObjects.Text;
+  private progressBarBg?: Phaser.GameObjects.Rectangle;
+  private progressBar?: Phaser.GameObjects.Rectangle;
+  private backButton?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "AchievementsScene" });
   }
 
-  create() {
+  create(): void {
     const { width, height } = this.scale;
     
     // Set background color
@@ -36,17 +53,19 @@ export default class AchievementsScene extends Phaser.Scene {
     const titleSize = getResponsiveTitleSize(width);
     const title = this.add.text(width / 2, getResponsiveSpacing(60, height), "Achievements", {
       fontSize: titleSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold",
       fontFamily: "'Orbitron', 'Arial', sans-serif"
     }).setOrigin(0.5);
+    this.title = title;
     
     // Progress indicator
     const progressText = this.add.text(width / 2, getResponsiveSpacing(120, height), 
       `Progress: ${progress}% (${achievements.filter(a => a.unlocked).length}/${achievements.length})`, {
       fontSize: getResponsiveFontSize(18, width, 14, 22),
-      fill: "#aaaaaa"
+      color: "#aaaaaa"
     }).setOrigin(0.5);
+    this.progressText = progressText;
     
     // Progress bar
     const progressBarBg = this.add.rectangle(
@@ -57,6 +76,7 @@ export default class AchievementsScene extends Phaser.Scene {
       0x333333,
       1
     );
+    this.progressBarBg = progressBarBg;
     
     const progressBar = this.add.rectangle(
       width / 2 - getResponsiveSpacing(200, width) + (progress / 100) * getResponsiveSpacing(400, width) / 2,
@@ -67,6 +87,7 @@ export default class AchievementsScene extends Phaser.Scene {
       1
     );
     progressBar.setOrigin(0, 0.5);
+    this.progressBar = progressBar;
     
     // Achievement cards
     const cardSize = getResponsiveCardSize(width, height);
@@ -101,9 +122,8 @@ export default class AchievementsScene extends Phaser.Scene {
         achievement.icon,
         {
           fontSize: getResponsiveFontSize(48, width, 36, 60),
-          alpha: achievement.unlocked ? 1 : 0.3
         }
-      ).setOrigin(0.5);
+      ).setOrigin(0.5).setAlpha(achievement.unlocked ? 1 : 0.3);
       
       // Achievement name
       const nameText = this.add.text(
@@ -112,7 +132,7 @@ export default class AchievementsScene extends Phaser.Scene {
         achievement.name,
         {
           fontSize: getResponsiveFontSize(22, width, 18, 26),
-          fill: achievement.unlocked ? "#ffffff" : "#888888",
+          color: achievement.unlocked ? "#ffffff" : "#888888",
           fontStyle: "bold",
           fontFamily: "'Orbitron', 'Arial', sans-serif"
         }
@@ -125,7 +145,7 @@ export default class AchievementsScene extends Phaser.Scene {
         achievement.description,
         {
           fontSize: getResponsiveFontSize(16, width, 12, 20),
-          fill: achievement.unlocked ? "#aaaaaa" : "#555555",
+          color: achievement.unlocked ? "#aaaaaa" : "#555555",
           wordWrap: { width: cardWidth - getResponsiveSpacing(200, width) }
         }
       ).setOrigin(0, 0.5);
@@ -137,9 +157,17 @@ export default class AchievementsScene extends Phaser.Scene {
         achievement.unlocked ? "✓" : "🔒",
         {
           fontSize: getResponsiveFontSize(32, width, 24, 40),
-          fill: achievement.unlocked ? "#00ff00" : "#666666"
+          color: achievement.unlocked ? "#00ff00" : "#666666"
         }
       ).setOrigin(0.5);
+      
+      const card: AchievementCard = {
+        bg: cardBg,
+        icon: iconText,
+        name: nameText,
+        desc: descText,
+        status: statusText
+      };
       
       // Unlock date if available
       if (achievement.unlocked && achievement.unlockedAt) {
@@ -150,19 +178,13 @@ export default class AchievementsScene extends Phaser.Scene {
           date.toLocaleDateString(),
           {
             fontSize: getResponsiveFontSize(12, width, 10, 14),
-            fill: "#666666"
+            color: "#666666"
           }
         ).setOrigin(0.5);
-        this.achievementCards.push({ dateText });
+        card.dateText = dateText;
       }
       
-      this.achievementCards.push({
-        bg: cardBg,
-        icon: iconText,
-        name: nameText,
-        desc: descText,
-        status: statusText
-      });
+      this.achievementCards.push(card);
     });
     
     // Back button
@@ -170,10 +192,11 @@ export default class AchievementsScene extends Phaser.Scene {
     const backY = startY + achievements.length * (cardHeight + cardSpacing) + getResponsiveSpacing(40, height);
     const backButton = this.add.text(width / 2, backY, "Back to Menu", {
       fontSize: buttonSize.fontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       backgroundColor: "#008CBA",
       padding: buttonSize.padding
     }).setOrigin(0.5).setInteractive();
+    this.backButton = backButton;
     
     backButton.on("pointerdown", () => {
       this.scene.start("MainMenuScene");
@@ -182,16 +205,9 @@ export default class AchievementsScene extends Phaser.Scene {
     // Hover effects
     backButton.on("pointerover", () => backButton.setAlpha(0.8));
     backButton.on("pointerout", () => backButton.setAlpha(1));
-    
-    // Store references
-    this.title = title;
-    this.progressText = progressText;
-    this.progressBarBg = progressBarBg;
-    this.progressBar = progressBar;
-    this.backButton = backButton;
   }
   
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Recreate UI on resize
     this.create();
   }
