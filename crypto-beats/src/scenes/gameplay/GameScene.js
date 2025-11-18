@@ -1692,7 +1692,7 @@ export default class GameScene extends Phaser.Scene {
         const scoreX = getResponsiveSpacing(20, width);
         const scoreY = getResponsiveSpacing(20, height);
         const gainText = this.add.text(scoreX + 150, scoreY, `+${scoreDiff}`, {
-          fontSize: getResponsiveFontSize(18, width, 14, 22),
+          fontSize: getResponsiveFontSize(28, width, 22, 34), // Increased from 18, 14, 22
           fill: Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba,
           fontStyle: "bold"
         });
@@ -1778,8 +1778,8 @@ export default class GameScene extends Phaser.Scene {
     // Animate combo text (pulse effect)
     this.tweens.add({
       targets: this.comboText,
-      scaleX: 1.2,
-      scaleY: 1.2,
+      scaleX: { from: 1.0, to: 1.2 },
+      scaleY: { from: 1.0, to: 1.2 },
       duration: 150,
       yoyo: true,
       ease: "Power2"
@@ -1815,7 +1815,9 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} combo - Current combo count
    */
   checkMilestoneCombo(combo) {
-    const milestones = [10, 50, 100];
+    const milestones = [2, 5, 10]; // Changed from [10, 50, 100] - first shake at 25 instead of 10
+    // Or if you want fewer shakes: const milestones = [50, 100];
+    // Or if you want more frequent: const milestones = [5, 10, 25, 50, 100];
     
     for (const milestone of milestones) {
       if (combo === milestone && this.lastMilestone < milestone) {
@@ -1848,9 +1850,9 @@ export default class GameScene extends Phaser.Scene {
       onComplete: () => flash.destroy()
     });
 
-    // Screen shake effect
-    const shakeIntensity = milestone === 100 ? 20 : milestone === 50 ? 15 : 10;
-    const shakeDuration = milestone === 100 ? 500 : milestone === 50 ? 400 : 300;
+    // Screen shake effect (reduced intensity, faster)
+    const shakeIntensity = milestone === 100 ? 5 : milestone === 50 ? 3 : 2; // Reduced from 20, 15, 10
+    const shakeDuration = milestone === 100 ? 200 : milestone === 50 ? 150 : 100; // Faster (reduced from 500, 400, 300)
     
     this.cameras.main.shake(shakeDuration, shakeIntensity / 100);
 
