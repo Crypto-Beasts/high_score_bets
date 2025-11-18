@@ -1,37 +1,38 @@
 import Phaser from "phaser";
-import { getAllSongs } from "../../config/songs.js";
-import { logError, validateSongData } from "../../utils/data/errorHandler.js";
+import { getAllSongs } from "../../config/songs";
+import { logError, validateSongData } from "../../utils/data/errorHandler";
 
 export default class LoadingScene extends Phaser.Scene {
+  private loadErrors: string[] = [];
+
   constructor() {
     super({ key: "LoadingScene" });
-    this.loadErrors = [];
   }
 
-  preload() {
+  preload(): void {
     const { width, height } = this.scale;
     
     // Set background color for loading scene
     this.cameras.main.setBackgroundColor(0x000000);
 
-    let progressBar = this.add.graphics();
-    let progressBox = this.add.graphics();
+    const progressBar = this.add.graphics();
+    const progressBox = this.add.graphics();
     progressBox.fillStyle(0x222222, 0.8);
     progressBox.fillRect(width / 2 - 160, height / 2 - 25, 320, 50);
 
-    let loadingText = this.add.text(width / 2, height / 2 - 50, "Loading...", {
+    const loadingText = this.add.text(width / 2, height / 2 - 50, "Loading...", {
       fontSize: "24px",
-      fill: "#ffffff",
+      color: "#ffffff",
     }).setOrigin(0.5);
 
-    this.load.on("progress", (value) => {
+    this.load.on("progress", (value: number) => {
       progressBar.clear();
       progressBar.fillStyle(0xffffff, 1);
       progressBar.fillRect(width / 2 - 150, height / 2 - 15, 300 * value, 30);
     });
 
     // Handle file load errors
-    this.load.on("fileerror", (key, type, file) => {
+    this.load.on("fileerror", (key: string, type: string, file: any) => {
       const errorMsg = `Failed to load ${type}: ${key} (${file.src || file.url || 'unknown'})`;
       this.loadErrors.push(errorMsg);
       logError("LoadingScene", errorMsg);
@@ -44,7 +45,7 @@ export default class LoadingScene extends Phaser.Scene {
       
       // Validate loaded song data
       const songs = getAllSongs();
-      const validationErrors = [];
+      const validationErrors: string[] = [];
       
       songs.forEach(song => {
         const songDataKey = song.id + "_data";
@@ -53,8 +54,8 @@ export default class LoadingScene extends Phaser.Scene {
           const validation = validateSongData(songData, song.id);
           
           if (!validation.valid) {
-            validationErrors.push(validation.error);
-            logError("LoadingScene", validation.error);
+            validationErrors.push(validation.error || 'Unknown validation error');
+            logError("LoadingScene", validation.error || 'Unknown validation error');
           }
         } else {
           const errorMsg = `Song data not found for ${song.id}`;
@@ -102,7 +103,7 @@ export default class LoadingScene extends Phaser.Scene {
       // this.load.audio("hitGood", "/sounds/hitGood.mp3");
       // this.load.audio("hitMiss", "/sounds/hitMiss.mp3");
     } catch (error) {
-      logError("LoadingScene", error);
+      logError("LoadingScene", error instanceof Error ? error : String(error));
       this.loadErrors.push("Failed to load static assets");
     }
     
@@ -123,7 +124,8 @@ export default class LoadingScene extends Phaser.Scene {
           // Load JSON file for each song
           this.load.json(song.id + "_data", song.jsonFile);
         } catch (error) {
-          logError("LoadingScene", `Error loading song ${song.id}: ${error.message}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logError("LoadingScene", `Error loading song ${song.id}: ${errorMessage}`);
           this.loadErrors.push(`Failed to load song: ${song.name}`);
         }
       });
@@ -131,8 +133,9 @@ export default class LoadingScene extends Phaser.Scene {
       // Store songs config in cache for use in other scenes
       this.cache.json.add("songs_config", songs);
     } catch (error) {
-      logError("LoadingScene", error);
+      logError("LoadingScene", error instanceof Error ? error : String(error));
       this.loadErrors.push("Failed to load song configuration");
     }
   }
 }
+
