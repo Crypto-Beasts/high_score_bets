@@ -2,13 +2,26 @@
  * Difficulty Manager - Adjusts game parameters and note data based on difficulty level
  */
 
+import { NoteData } from "../data/errorHandler";
+
 export const DIFFICULTY_LEVELS = {
   EASY: 'easy',
   NORMAL: 'normal',
   HARD: 'hard'
-};
+} as const;
 
-export const DIFFICULTY_CONFIG = {
+export type DifficultyLevel = typeof DIFFICULTY_LEVELS[keyof typeof DIFFICULTY_LEVELS];
+
+export interface DifficultyConfig {
+  perfectMargin: number;
+  goodMargin: number;
+  noteFilterRatio: number;
+  minNoteGap: number;
+  name: string;
+  color: string;
+}
+
+export const DIFFICULTY_CONFIG: Record<DifficultyLevel, DifficultyConfig> = {
   [DIFFICULTY_LEVELS.EASY]: {
     // New Easy: Even easier than the old Easy mode
     perfectMargin: 35,    // Very large timing window - very easy to hit perfect
@@ -40,16 +53,19 @@ export const DIFFICULTY_CONFIG = {
 
 /**
  * Filter and modify song data based on difficulty
- * @param {Array} songData - Original song data
- * @param {string} difficulty - Difficulty level (easy, normal, hard)
- * @returns {Array} Filtered and modified song data
+ * @param songData - Original song data
+ * @param difficulty - Difficulty level (easy, normal, hard)
+ * @returns Filtered and modified song data
  */
-export function adjustSongDataForDifficulty(songData, difficulty) {
+export function adjustSongDataForDifficulty(
+  songData: NoteData[],
+  difficulty: string
+): NoteData[] {
   if (!songData || !Array.isArray(songData)) {
     return songData;
   }
 
-  const config = DIFFICULTY_CONFIG[difficulty];
+  const config = DIFFICULTY_CONFIG[difficulty as DifficultyLevel];
   if (!config) {
     console.warn(`Unknown difficulty: ${difficulty}, using NORMAL`);
     return adjustSongDataForDifficulty(songData, DIFFICULTY_LEVELS.NORMAL);
@@ -79,7 +95,7 @@ export function adjustSongDataForDifficulty(songData, difficulty) {
   // Remove notes that are too close together (enforce minimum gap)
   // IMPORTANT: Hold notes are always preserved even if they violate minNoteGap
   if (config.minNoteGap > 0) {
-    const result = [];
+    const result: NoteData[] = [];
     for (let i = 0; i < filteredData.length; i++) {
       if (i === 0) {
         result.push(filteredData[i]); // Always keep first note
@@ -102,9 +118,10 @@ export function adjustSongDataForDifficulty(songData, difficulty) {
 
 /**
  * Get difficulty configuration
- * @param {string} difficulty - Difficulty level
- * @returns {Object} Difficulty configuration
+ * @param difficulty - Difficulty level
+ * @returns Difficulty configuration
  */
-export function getDifficultyConfig(difficulty) {
-  return DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL];
+export function getDifficultyConfig(difficulty: string): DifficultyConfig {
+  return DIFFICULTY_CONFIG[difficulty as DifficultyLevel] || DIFFICULTY_CONFIG[DIFFICULTY_LEVELS.NORMAL];
 }
+

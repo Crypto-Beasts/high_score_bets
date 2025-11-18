@@ -3,14 +3,27 @@
  * Handles audio offset calibration, timing calculations, and variable BPM support
  */
 
+import Phaser from "phaser";
+
 const STORAGE_KEY = 'cryptoBeats_audioOffset';
 const DEFAULT_OFFSET = 0; // milliseconds
 
+export interface BPMChange {
+  time: number;
+  bpm: number;
+}
+
+export interface SongMetadata {
+  bpm?: number;
+  bpmChanges?: BPMChange[];
+  [key: string]: any;
+}
+
 /**
  * Get audio offset from localStorage
- * @returns {number} Audio offset in milliseconds
+ * @returns Audio offset in milliseconds
  */
-export function getAudioOffset() {
+export function getAudioOffset(): number {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored !== null) {
@@ -27,9 +40,9 @@ export function getAudioOffset() {
 
 /**
  * Set audio offset in localStorage
- * @param {number} offset - Audio offset in milliseconds (-500 to 500)
+ * @param offset - Audio offset in milliseconds (-500 to 500)
  */
-export function setAudioOffset(offset) {
+export function setAudioOffset(offset: number): number {
   try {
     const clampedOffset = Math.max(-500, Math.min(500, offset));
     localStorage.setItem(STORAGE_KEY, clampedOffset.toString());
@@ -43,7 +56,7 @@ export function setAudioOffset(offset) {
 /**
  * Reset audio offset to default
  */
-export function resetAudioOffset() {
+export function resetAudioOffset(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch (error) {
@@ -54,17 +67,22 @@ export function resetAudioOffset() {
 /**
  * Calculate accurate game time using audio.currentTime when available
  * Falls back to scene time if audio is not available
- * @param {Phaser.Sound.BaseSound} audio - Phaser audio object
- * @param {number} currentSceneTime - Current scene time (this.time.now)
- * @param {number} audioStartTime - When audio actually started playing (Date.now() timestamp)
- * @param {number} audioOffset - User-calibrated audio offset in milliseconds
- * @returns {number} Accurate game time in seconds
+ * @param audio - Phaser audio object
+ * @param currentSceneTime - Current scene time (this.time.now)
+ * @param audioStartTime - When audio actually started playing (Date.now() timestamp)
+ * @param audioOffset - User-calibrated audio offset in milliseconds
+ * @returns Accurate game time in seconds
  */
-export function getAccurateGameTime(audio, currentSceneTime, audioStartTime, audioOffset = 0) {
+export function getAccurateGameTime(
+  audio: Phaser.Sound.BaseSound | null,
+  currentSceneTime: number,
+  audioStartTime: number,
+  audioOffset: number = 0
+): number {
   // Try to use audio.currentTime for most accurate timing
-  if (audio && audio.isPlaying && typeof audio.currentTime === 'number' && audio.currentTime > 0) {
+  if (audio && audio.isPlaying && typeof (audio as any).currentTime === 'number' && (audio as any).currentTime > 0) {
     // Use audio's internal time, adjusted for offset
-    return audio.currentTime + (audioOffset / 1000);
+    return (audio as any).currentTime + (audioOffset / 1000);
   }
   
   // Fallback to scene time calculation using Date.now() for consistency
@@ -76,14 +94,14 @@ export function getAccurateGameTime(audio, currentSceneTime, audioStartTime, aud
 
 /**
  * Check if audio is ready to play
- * @param {Phaser.Sound.BaseSound} audio - Phaser audio object
- * @returns {boolean} True if audio is ready
+ * @param audio - Phaser audio object
+ * @returns True if audio is ready
  */
-export function isAudioReady(audio) {
+export function isAudioReady(audio: Phaser.Sound.BaseSound | null): boolean {
   if (!audio) return false;
   
   // Check if audio is loaded
-  if (!audio.key || !audio.isDecoded) {
+  if (!audio.key || !(audio as any).isDecoded) {
     return false;
   }
   
@@ -97,12 +115,16 @@ export function isAudioReady(audio) {
 
 /**
  * Wait for audio to be ready with timeout
- * @param {Phaser.Sound.BaseSound} audio - Phaser audio object
- * @param {Phaser.Scene} scene - Phaser scene for delayed calls
- * @param {number} timeout - Maximum wait time in milliseconds (default: 5000)
- * @returns {Promise<boolean>} True if audio is ready, false if timeout
+ * @param audio - Phaser audio object
+ * @param scene - Phaser scene for delayed calls
+ * @param timeout - Maximum wait time in milliseconds (default: 5000)
+ * @returns Promise that resolves to true if audio is ready, false if timeout
  */
-export function waitForAudioReady(audio, scene, timeout = 5000) {
+export function waitForAudioReady(
+  audio: Phaser.Sound.BaseSound | null,
+  scene: Phaser.Scene,
+  timeout: number = 5000
+): Promise<boolean> {
   return new Promise((resolve) => {
     if (isAudioReady(audio)) {
       resolve(true);
@@ -133,10 +155,10 @@ export function waitForAudioReady(audio, scene, timeout = 5000) {
 
 /**
  * Parse BPM change events from song metadata
- * @param {Object} songMetadata - Song metadata object
- * @returns {Array} Array of BPM change events [{time: number, bpm: number}]
+ * @param songMetadata - Song metadata object
+ * @returns Array of BPM change events
  */
-export function parseBPMChanges(songMetadata) {
+export function parseBPMChanges(songMetadata: SongMetadata | null | undefined): BPMChange[] {
   if (!songMetadata || !songMetadata.bpmChanges) {
     return [];
   }
@@ -154,12 +176,16 @@ export function parseBPMChanges(songMetadata) {
 
 /**
  * Get current BPM at a given time (for variable BPM songs)
- * @param {number} currentTime - Current game time in seconds
- * @param {number} defaultBPM - Default BPM if no changes
- * @param {Array} bpmChanges - Array of BPM change events
- * @returns {number} Current BPM
+ * @param currentTime - Current game time in seconds
+ * @param defaultBPM - Default BPM if no changes
+ * @param bpmChanges - Array of BPM change events
+ * @returns Current BPM
  */
-export function getCurrentBPM(currentTime, defaultBPM, bpmChanges = []) {
+export function getCurrentBPM(
+  currentTime: number,
+  defaultBPM: number,
+  bpmChanges: BPMChange[] = []
+): number {
   if (!bpmChanges || bpmChanges.length === 0) {
     return defaultBPM || 120;
   }
@@ -180,12 +206,16 @@ export function getCurrentBPM(currentTime, defaultBPM, bpmChanges = []) {
 /**
  * Adjust note timing for variable BPM
  * This converts absolute time to beat-based time accounting for BPM changes
- * @param {number} absoluteTime - Absolute time in seconds
- * @param {number} baseBPM - Base BPM of the song
- * @param {Array} bpmChanges - Array of BPM change events
- * @returns {number} Adjusted time in seconds
+ * @param absoluteTime - Absolute time in seconds
+ * @param baseBPM - Base BPM of the song
+ * @param bpmChanges - Array of BPM change events
+ * @returns Adjusted time in seconds
  */
-export function adjustTimeForVariableBPM(absoluteTime, baseBPM, bpmChanges = []) {
+export function adjustTimeForVariableBPM(
+  absoluteTime: number,
+  baseBPM: number,
+  bpmChanges: BPMChange[] = []
+): number {
   if (!bpmChanges || bpmChanges.length === 0) {
     return absoluteTime; // No adjustment needed
   }

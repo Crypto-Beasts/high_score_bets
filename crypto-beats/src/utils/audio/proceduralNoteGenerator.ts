@@ -4,44 +4,88 @@
  * This makes each playthrough unique and unpredictable for bots
  */
 
+import Phaser from "phaser";
+import { NoteData } from "../data/errorHandler";
+
+interface FrequencyBands {
+  bass: number;
+  midLow: number;
+  midHigh: number;
+  treble: number;
+  total: number;
+}
+
+interface AudioFeatures extends FrequencyBands {
+  energy: number;
+  beatDetected: boolean;
+}
+
+interface DifficultyModifier {
+  noteDensity: number;
+  timingVariance: number;
+  keyVariation: number;
+}
+
+interface FrequencyBandRange {
+  min: number;
+  max: number;
+}
+
+interface ProceduralNote extends NoteData {
+  generated?: boolean;
+  audioFeatures?: AudioFeatures;
+}
+
 export class ProceduralNoteGenerator {
-  constructor(scene, audioContext, audioSource, difficulty = 'normal') {
+  private scene: Phaser.Scene;
+  private audioContext: AudioContext | null;
+  private audioSource: MediaElementAudioSourceNode | null;
+  private difficulty: string;
+  
+  // Audio analysis setup
+  private analyser: AnalyserNode | null = null;
+  private dataArray: Uint8Array | null = null;
+  private bufferLength: number = 0;
+  
+  // Beat detection
+  private beatThreshold: number = 0.3; // Adjust based on music
+  private lastBeatTime: number = 0;
+  private beatHistory: number[] = [];
+  private energyHistory: number[] = [];
+  
+  // Note generation
+  private generatedNotes: ProceduralNote[] = [];
+  private lastNoteTime: number = 0;
+  private noteSpawnInterval: number = 0.2; // Minimum time between notes (seconds)
+  
+  // Frequency bands for key mapping
+  private frequencyBands: Record<string, FrequencyBandRange> = {
+    bass: { min: 0, max: 250 },      // W key
+    midLow: { min: 250, max: 500 },   // A key
+    midHigh: { min: 500, max: 2000 }, // S key
+    treble: { min: 2000, max: 20000 } // D key
+  };
+  
+  // Difficulty modifiers
+  private difficultyModifiers: Record<string, DifficultyModifier> = {
+    easy: { noteDensity: 0.6, timingVariance: 20, keyVariation: 0.1 },
+    normal: { noteDensity: 1.0, timingVariance: 10, keyVariation: 0.05 },
+    hard: { noteDensity: 1.4, timingVariance: 5, keyVariation: 0.02 },
+    expert: { noteDensity: 2.0, timingVariance: 2, keyVariation: 0.01 }
+  };
+  
+  private modifier: DifficultyModifier;
+  
+  constructor(
+    scene: Phaser.Scene,
+    audioContext: AudioContext,
+    audioSource: MediaElementAudioSourceNode | null,
+    difficulty: string = 'normal'
+  ) {
     this.scene = scene;
     this.audioContext = audioContext;
     this.audioSource = audioSource;
     this.difficulty = difficulty;
-    
-    // Audio analysis setup
-    this.analyser = null;
-    this.dataArray = null;
-    this.bufferLength = 0;
-    
-    // Beat detection
-    this.beatThreshold = 0.3; // Adjust based on music
-    this.lastBeatTime = 0;
-    this.beatHistory = [];
-    this.energyHistory = [];
-    
-    // Note generation
-    this.generatedNotes = [];
-    this.lastNoteTime = 0;
-    this.noteSpawnInterval = 0.2; // Minimum time between notes (seconds)
-    
-    // Frequency bands for key mapping
-    this.frequencyBands = {
-      bass: { min: 0, max: 250 },      // W key
-      midLow: { min: 250, max: 500 },   // A key
-      midHigh: { min: 500, max: 2000 }, // S key
-      treble: { min: 2000, max: 20000 } // D key
-    };
-    
-    // Difficulty modifiers
-    this.difficultyModifiers = {
-      easy: { noteDensity: 0.6, timingVariance: 20, keyVariation: 0.1 },
-      normal: { noteDensity: 1.0, timingVariance: 10, keyVariation: 0.05 },
-      hard: { noteDensity: 1.4, timingVariance: 5, keyVariation: 0.02 },
-      expert: { noteDensity: 2.0, timingVariance: 2, keyVariation: 0.01 }
-    };
     
     this.modifier = this.difficultyModifiers[difficulty] || this.difficultyModifiers.normal;
     
@@ -52,7 +96,9 @@ export class ProceduralNoteGenerator {
   /**
    * Initialize Web Audio API analysis
    */
-  initializeAudioAnalysis() {
+  private initializeAudioAnalysis(): void {
+    if (!this.audioContext) return;
+    
     // Create analyser node
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 2048; // Higher = more frequency resolution
@@ -72,16 +118,20 @@ export class ProceduralNoteGenerator {
   
   /**
    * Get current audio features
-   * @returns {Object} Audio features (frequencies, energy, etc.)
+   * @returns Audio features (frequencies, energy, etc.)
    */
-  getAudioFeatures() {
-    if (!this.analyser) return null;
+  getAudioFeatures(): FrequencyBands | null {
+    if (!this.analyser || !this.dataArray || !this.audioContext) return null;
     
     // Get frequency data
-    this.analyser.getByteFrequencyData(this.dataArray);
+    if (this.dataArray && this.analyser) {
+      // Type assertion needed because TypeScript is strict about ArrayBuffer vs ArrayBufferLike
+      // The runtime type is correct, but TypeScript needs this assertion
+      (this.analyser as any).getByteFrequencyData(this.dataArray);
+    }
     
     // Calculate energy in each frequency band
-    const bands = {
+    const bands: FrequencyBands = {
       bass: 0,
       midLow: 0,
       midHigh: 0,
@@ -121,10 +171,10 @@ export class ProceduralNoteGenerator {
   
   /**
    * Detect beats using energy-based algorithm
-   * @param {number} currentTime - Current audio time
-   * @returns {boolean} True if beat detected
+   * @param currentTime - Current audio time
+   * @returns True if beat detected
    */
-  detectBeat(currentTime) {
+  detectBeat(currentTime: number): boolean {
     const features = this.getAudioFeatures();
     if (!features) return false;
     
@@ -158,10 +208,10 @@ export class ProceduralNoteGenerator {
   
   /**
    * Map frequency bands to game keys
-   * @param {Object} bands - Frequency band energies
-   * @returns {string} Key to press (W, A, S, D)
+   * @param bands - Frequency band energies
+   * @returns Key to press (W, A, S, D)
    */
-  mapFrequencyToKey(bands) {
+  mapFrequencyToKey(bands: FrequencyBands): string {
     // Find dominant frequency band
     const bandValues = [
       { key: 'W', value: bands.bass },
@@ -188,10 +238,10 @@ export class ProceduralNoteGenerator {
   
   /**
    * Generate a note based on current audio state
-   * @param {number} currentTime - Current audio time
-   * @returns {Object|null} Note object or null if no note should spawn
+   * @param currentTime - Current audio time
+   * @returns Note object or null if no note should spawn
    */
-  generateNote(currentTime) {
+  generateNote(currentTime: number): ProceduralNote | null {
     // Check if enough time has passed since last note
     if (currentTime - this.lastNoteTime < this.noteSpawnInterval * this.modifier.noteDensity) {
       return null;
@@ -220,11 +270,11 @@ export class ProceduralNoteGenerator {
     const holdDuration = isHold ? 0.5 + Math.random() * 1.0 : 0; // 0.5-1.5 seconds
     
     // Add timing variance (makes it unpredictable)
-    const timingVariance = (Math.random() - 0.5) * this.modifier.timingVariance / 1000; // Convert to seconds
+    const timingVariance = (Math.random() - 0.5) * 2 * this.modifier.timingVariance / 1000; // Convert to seconds
     const spawnTime = currentTime + timingVariance;
     
     // Create note object
-    const note = {
+    const note: ProceduralNote = {
       time: spawnTime,
       key: key,
       duration: holdDuration,
@@ -232,7 +282,12 @@ export class ProceduralNoteGenerator {
       generated: true, // Mark as procedurally generated
       audioFeatures: {
         energy: features.total,
-        beatDetected: beatDetected
+        beatDetected: beatDetected,
+        bass: features.bass,
+        midLow: features.midLow,
+        midHigh: features.midHigh,
+        treble: features.treble,
+        total: features.total
       }
     };
     
@@ -244,12 +299,12 @@ export class ProceduralNoteGenerator {
   
   /**
    * Get all notes that should spawn up to a given time
-   * @param {number} currentTime - Current audio time
-   * @param {number} lookAhead - How far ahead to generate (seconds)
-   * @returns {Array} Array of notes to spawn
+   * @param currentTime - Current audio time
+   * @param lookAhead - How far ahead to generate (seconds)
+   * @returns Array of notes to spawn
    */
-  getNotesToSpawn(currentTime, lookAhead = 2.0) {
-    const notesToSpawn = [];
+  getNotesToSpawn(currentTime: number, lookAhead: number = 2.0): ProceduralNote[] {
+    const notesToSpawn: ProceduralNote[] = [];
     const endTime = currentTime + lookAhead;
     
     // Generate notes up to lookAhead time
@@ -273,7 +328,7 @@ export class ProceduralNoteGenerator {
   /**
    * Reset generator for new song
    */
-  reset() {
+  reset(): void {
     this.generatedNotes = [];
     this.lastNoteTime = 0;
     this.lastBeatTime = 0;
@@ -284,7 +339,7 @@ export class ProceduralNoteGenerator {
   /**
    * Cleanup resources
    */
-  destroy() {
+  destroy(): void {
     if (this.analyser) {
       this.analyser.disconnect();
       this.analyser = null;
@@ -295,21 +350,27 @@ export class ProceduralNoteGenerator {
 
 /**
  * Create procedural note generator from Phaser audio
- * @param {Phaser.Scene} scene - Phaser scene
- * @param {Phaser.Sound.BaseSound} phaserAudio - Phaser audio object
- * @param {string} difficulty - Difficulty level
- * @returns {ProceduralNoteGenerator|null} Generator instance or null if Web Audio API not available
+ * @param scene - Phaser scene
+ * @param phaserAudio - Phaser audio object
+ * @param difficulty - Difficulty level
+ * @returns Generator instance or null if Web Audio API not available
  */
-export function createProceduralGenerator(scene, phaserAudio, difficulty = 'normal') {
+export function createProceduralGenerator(
+  scene: Phaser.Scene,
+  phaserAudio: Phaser.Sound.BaseSound,
+  difficulty: string = 'normal'
+): ProceduralNoteGenerator | null {
   // Check if Web Audio API is available
-  if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
+  const AudioContextClass = (typeof AudioContext !== 'undefined') ? AudioContext : 
+                           (typeof (window as any).webkitAudioContext !== 'undefined') ? (window as any).webkitAudioContext : null;
+  
+  if (!AudioContextClass) {
     console.warn('[ProceduralGenerator] Web Audio API not available');
     return null;
   }
   
   try {
     // Create AudioContext
-    const AudioContextClass = AudioContext || webkitAudioContext;
     const audioContext = new AudioContextClass();
     
     // Get audio element from Phaser (if available)

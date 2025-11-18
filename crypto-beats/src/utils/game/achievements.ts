@@ -6,10 +6,51 @@
 const STORAGE_KEY = 'cryptoBeats_achievements';
 const PROGRESS_KEY = 'cryptoBeats_progress';
 
+export interface GameData {
+  accuracy?: number;
+  difficulty?: string;
+  failed?: boolean;
+  longestStreak?: number;
+  totalSongs?: number;
+  progress?: PlayerProgress;
+  [key: string]: any;
+}
+
+export interface PlayerProgress {
+  songsPlayed: string[];
+  sRanks: string[];
+  maxCombo: number;
+  songsCompleted: Record<string, Record<string, SongCompletion>>;
+}
+
+export interface SongCompletion {
+  accuracy: number;
+  grade: string;
+  longestStreak: number;
+  timestamp: number;
+}
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  check: (progress: PlayerProgress, gameData: GameData) => boolean;
+}
+
+export interface AchievementWithStatus extends Achievement {
+  unlocked: boolean;
+  unlockedAt: number | null;
+}
+
+export interface UnlockedAchievements {
+  [achievementId: string]: number; // timestamp
+}
+
 /**
  * Achievement definitions
  */
-export const ACHIEVEMENTS = {
+export const ACHIEVEMENTS: Record<string, Achievement> = {
   FIRST_PERFECT: {
     id: 'first_perfect',
     name: 'First Perfect',
@@ -17,7 +58,7 @@ export const ACHIEVEMENTS = {
     icon: '🎯',
     check: (progress, gameData) => {
       // Check if any song has 100% accuracy
-      return gameData.accuracy >= 100;
+      return (gameData.accuracy ?? 0) >= 100;
     }
   },
   COMBO_MASTER: {
@@ -27,7 +68,7 @@ export const ACHIEVEMENTS = {
     icon: '🔥',
     check: (progress, gameData) => {
       // Check if longest streak reached 100
-      return gameData.longestStreak >= 100;
+      return (gameData.longestStreak ?? 0) >= 100;
     }
   },
   SPEED_DEMON: {
@@ -68,9 +109,9 @@ export const ACHIEVEMENTS = {
 
 /**
  * Get all unlocked achievements from localStorage
- * @returns {Object} Object with achievement IDs as keys and unlock timestamps as values
+ * @returns Object with achievement IDs as keys and unlock timestamps as values
  */
-export function getUnlockedAchievements() {
+export function getUnlockedAchievements(): UnlockedAchievements {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -84,10 +125,10 @@ export function getUnlockedAchievements() {
 
 /**
  * Unlock an achievement
- * @param {string} achievementId - Achievement ID to unlock
- * @returns {boolean} True if newly unlocked, false if already unlocked
+ * @param achievementId - Achievement ID to unlock
+ * @returns True if newly unlocked, false if already unlocked
  */
-export function unlockAchievement(achievementId) {
+export function unlockAchievement(achievementId: string): boolean {
   try {
     const unlocked = getUnlockedAchievements();
     
@@ -108,19 +149,19 @@ export function unlockAchievement(achievementId) {
 
 /**
  * Check if an achievement is unlocked
- * @param {string} achievementId - Achievement ID to check
- * @returns {boolean} True if unlocked
+ * @param achievementId - Achievement ID to check
+ * @returns True if unlocked
  */
-export function isAchievementUnlocked(achievementId) {
+export function isAchievementUnlocked(achievementId: string): boolean {
   const unlocked = getUnlockedAchievements();
   return !!unlocked[achievementId];
 }
 
 /**
  * Get player progress from localStorage
- * @returns {Object} Progress object
+ * @returns Progress object
  */
-export function getPlayerProgress() {
+export function getPlayerProgress(): PlayerProgress {
   try {
     const stored = localStorage.getItem(PROGRESS_KEY);
     if (stored) {
@@ -139,9 +180,9 @@ export function getPlayerProgress() {
 
 /**
  * Update player progress
- * @param {Object} update - Progress update object
+ * @param update - Progress update object
  */
-export function updatePlayerProgress(update) {
+export function updatePlayerProgress(update: Partial<PlayerProgress>): void {
   try {
     const progress = getPlayerProgress();
     
@@ -161,13 +202,19 @@ export function updatePlayerProgress(update) {
 
 /**
  * Record a song completion
- * @param {string} songId - Song ID
- * @param {string} difficulty - Difficulty level
- * @param {number} accuracy - Accuracy percentage
- * @param {string} grade - Grade (S, A, B, C, D, F)
- * @param {number} longestStreak - Longest combo streak
+ * @param songId - Song ID
+ * @param difficulty - Difficulty level
+ * @param accuracy - Accuracy percentage
+ * @param grade - Grade (S, A, B, C, D, F)
+ * @param longestStreak - Longest combo streak
  */
-export function recordSongCompletion(songId, difficulty, accuracy, grade, longestStreak) {
+export function recordSongCompletion(
+  songId: string,
+  difficulty: string,
+  accuracy: number,
+  grade: string,
+  longestStreak: number
+): void {
   const progress = getPlayerProgress();
   
   // Track songs played (unique)
@@ -205,17 +252,17 @@ export function recordSongCompletion(songId, difficulty, accuracy, grade, longes
 
 /**
  * Check achievements based on game data
- * @param {Object} gameData - Game result data
- * @param {number} totalSongs - Total number of songs available
- * @returns {Array} Array of newly unlocked achievement IDs
+ * @param gameData - Game result data
+ * @param totalSongs - Total number of songs available
+ * @returns Array of newly unlocked achievement IDs
  */
-export function checkAchievements(gameData, totalSongs = 0) {
+export function checkAchievements(gameData: GameData, totalSongs: number = 0): string[] {
   const progress = getPlayerProgress();
   const unlocked = getUnlockedAchievements();
-  const newlyUnlocked = [];
+  const newlyUnlocked: string[] = [];
   
   // Prepare game data with progress info
-  const fullGameData = {
+  const fullGameData: GameData = {
     ...gameData,
     totalSongs,
     progress
@@ -241,18 +288,18 @@ export function checkAchievements(gameData, totalSongs = 0) {
 
 /**
  * Get achievement info by ID
- * @param {string} achievementId - Achievement ID
- * @returns {Object|null} Achievement object or null
+ * @param achievementId - Achievement ID
+ * @returns Achievement object or null
  */
-export function getAchievement(achievementId) {
+export function getAchievement(achievementId: string): Achievement | null {
   return ACHIEVEMENTS[achievementId] || Object.values(ACHIEVEMENTS).find(a => a.id === achievementId) || null;
 }
 
 /**
  * Get all achievements with unlock status
- * @returns {Array} Array of achievement objects with unlock status
+ * @returns Array of achievement objects with unlock status
  */
-export function getAllAchievements() {
+export function getAllAchievements(): AchievementWithStatus[] {
   const unlocked = getUnlockedAchievements();
   
   return Object.values(ACHIEVEMENTS).map(achievement => ({
@@ -264,9 +311,9 @@ export function getAllAchievements() {
 
 /**
  * Get achievement progress percentage
- * @returns {number} Percentage of achievements unlocked (0-100)
+ * @returns Percentage of achievements unlocked (0-100)
  */
-export function getAchievementProgress() {
+export function getAchievementProgress(): number {
   const unlocked = getUnlockedAchievements();
   const total = Object.keys(ACHIEVEMENTS).length;
   const unlockedCount = Object.keys(unlocked).length;
