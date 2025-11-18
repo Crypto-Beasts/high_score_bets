@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { getSongById } from "../../config/songs.js";
-import { DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager.js";
+import { getSongById } from "../../config/songs";
+import { DIFFICULTY_CONFIG } from "../../utils/game/difficultyManager";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -8,37 +8,95 @@ import {
   getResponsiveFontSize,
   getResponsiveSpacing,
   getResponsiveButtonSize
-} from "../../utils/ui/responsive.js";
+} from "../../utils/ui/responsive";
+
+interface MultiplayerDebriefData {
+  score?: number;
+  totalNotes?: number;
+  notesHit?: number;
+  longestStreak?: number;
+  averageCombo?: number;
+  perfectCount?: number;
+  goodCount?: number;
+  missCount?: number;
+  failed?: boolean;
+  opponentScore?: number;
+  opponentAccuracy?: number;
+  opponentTotalNotes?: number;
+  opponentNotesHit?: number;
+  opponentLongestStreak?: number;
+  opponentDisconnected?: boolean;
+  song?: string;
+  difficulty?: string;
+  roomId?: string | null;
+}
 
 export default class MultiplayerDebriefScene extends Phaser.Scene {
+  private yourScore: number = 0;
+  private yourTotalNotes: number = 1;
+  private yourNotesHit: number = 0;
+  private yourLongestStreak: number = 0;
+  private yourAverageCombo: number = 0;
+  private yourPerfectCount: number = 0;
+  private yourGoodCount: number = 0;
+  private yourMissCount: number = 0;
+  private yourFailed: boolean = false;
+  private opponentScore: number = 0;
+  private opponentAccuracy: number = 0;
+  private opponentTotalNotes: number = 0;
+  private opponentNotesHit: number = 0;
+  private opponentLongestStreak: number = 0;
+  private opponentDisconnected: boolean = false;
+  private song: string = "Aguado_Menuet_Aminor";
+  private difficulty: string = "normal";
+  private roomId: string | null = null;
+  private isWinner: boolean = false;
+  private isTie: boolean = false;
+  private backgroundImage?: Phaser.GameObjects.Image;
+  private backgroundRect?: Phaser.GameObjects.Rectangle;
+  private titleText?: Phaser.GameObjects.Text;
+  private songText?: Phaser.GameObjects.Text;
+  private scorePanel?: Phaser.GameObjects.Rectangle;
+  private yourLabel?: Phaser.GameObjects.Text;
+  private yourScoreText?: Phaser.GameObjects.Text;
+  private yourAccuracyText?: Phaser.GameObjects.Text;
+  private yourBreakdownText?: Phaser.GameObjects.Text;
+  private yourComboText?: Phaser.GameObjects.Text;
+  private vsText?: Phaser.GameObjects.Text;
+  private opponentLabel?: Phaser.GameObjects.Text;
+  private opponentScoreText?: Phaser.GameObjects.Text;
+  private opponentAccuracyText?: Phaser.GameObjects.Text;
+  private opponentComboText?: Phaser.GameObjects.Text;
+  private diffText?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "MultiplayerDebriefScene" });
   }
 
-  init(data) {
+  init(data?: MultiplayerDebriefData): void {
     // Your stats
-    this.yourScore = data.score || 0;
-    this.yourTotalNotes = data.totalNotes || 1;
-    this.yourNotesHit = data.notesHit || 0;
-    this.yourLongestStreak = data.longestStreak || 0;
-    this.yourAverageCombo = data.averageCombo || 0;
-    this.yourPerfectCount = data.perfectCount || 0;
-    this.yourGoodCount = data.goodCount || 0;
-    this.yourMissCount = data.missCount || 0;
-    this.yourFailed = data.failed || false;
+    this.yourScore = data?.score || 0;
+    this.yourTotalNotes = data?.totalNotes || 1;
+    this.yourNotesHit = data?.notesHit || 0;
+    this.yourLongestStreak = data?.longestStreak || 0;
+    this.yourAverageCombo = data?.averageCombo || 0;
+    this.yourPerfectCount = data?.perfectCount || 0;
+    this.yourGoodCount = data?.goodCount || 0;
+    this.yourMissCount = data?.missCount || 0;
+    this.yourFailed = data?.failed || false;
     
     // Opponent stats
-    this.opponentScore = data.opponentScore || 0;
-    this.opponentAccuracy = data.opponentAccuracy || 0;
-    this.opponentTotalNotes = data.opponentTotalNotes || 0;
-    this.opponentNotesHit = data.opponentNotesHit || 0;
-    this.opponentLongestStreak = data.opponentLongestStreak || 0;
-    this.opponentDisconnected = data.opponentDisconnected || false;
+    this.opponentScore = data?.opponentScore || 0;
+    this.opponentAccuracy = data?.opponentAccuracy || 0;
+    this.opponentTotalNotes = data?.opponentTotalNotes || 0;
+    this.opponentNotesHit = data?.opponentNotesHit || 0;
+    this.opponentLongestStreak = data?.opponentLongestStreak || 0;
+    this.opponentDisconnected = data?.opponentDisconnected || false;
     
     // Match info
-    this.song = data.song || "Aguado_Menuet_Aminor";
-    this.difficulty = data.difficulty || "normal";
-    this.roomId = data.roomId || null;
+    this.song = data?.song || "Aguado_Menuet_Aminor";
+    this.difficulty = data?.difficulty || "normal";
+    this.roomId = data?.roomId || null;
     
     // Determine winner (if opponent disconnected, you win by default)
     if (this.opponentDisconnected || this.opponentTotalNotes === 0) {
@@ -50,7 +108,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     }
   }
 
-  create() {
+  create(): void {
     const { width, height } = this.scale;
     
     // Set background
@@ -74,7 +132,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     this.scale.on('resize', this.handleResize, this);
   }
 
-  setupUI(yourAccuracy, opponentAccuracy) {
+  private setupUI(yourAccuracy: number, opponentAccuracy: number): void {
     const { width, height } = this.scale;
     
     // Title - Winner/Loser/Tie
@@ -95,7 +153,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     
     this.titleText = this.add.text(width / 2, getResponsiveSpacing(40, height), titleText, {
       fontSize: titleSize,
-      fill: titleColor,
+      color: titleColor,
       fontStyle: "bold",
       stroke: "#000000",
       strokeThickness: Math.max(3, Math.round(6 * (width / 1920)))
@@ -104,12 +162,12 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     // Song info
     const song = getSongById(this.song);
     const songName = song ? song.name : this.song;
-    const difficultyConfig = DIFFICULTY_CONFIG[this.difficulty];
+    const difficultyConfig = DIFFICULTY_CONFIG[this.difficulty as keyof typeof DIFFICULTY_CONFIG];
     
     this.songText = this.add.text(width / 2, getResponsiveSpacing(100, height), 
       `${songName} - ${difficultyConfig.name}`, {
       fontSize: getResponsiveFontSize(20, width, 16, 24),
-      fill: "#aaaaaa"
+      color: "#aaaaaa"
     }).setOrigin(0.5);
     
     // Score comparison panel
@@ -135,7 +193,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     // Your label
     this.yourLabel = this.add.text(leftX, statsY, "YOU", {
       fontSize: getResponsiveFontSize(28, width, 22, 34),
-      fill: "#00ff00",
+      color: "#00ff00",
       fontStyle: "bold"
     }).setOrigin(0.5);
     
@@ -143,7 +201,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     this.yourScoreText = this.add.text(leftX, statsY + statsSpacing, 
       `Score: ${this.yourScore.toLocaleString()}`, {
       fontSize: getResponsiveFontSize(32, width, 24, 40),
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
     
@@ -151,27 +209,27 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     this.yourAccuracyText = this.add.text(leftX, statsY + statsSpacing * 2,
       `Accuracy: ${yourAccuracy}%`, {
       fontSize: getResponsiveFontSize(22, width, 18, 26),
-      fill: "#ffffff"
+      color: "#ffffff"
     }).setOrigin(0.5);
     
     // Your breakdown
     this.yourBreakdownText = this.add.text(leftX, statsY + statsSpacing * 3,
       `Perfect: ${this.yourPerfectCount} | Good: ${this.yourGoodCount} | Miss: ${this.yourMissCount}`, {
       fontSize: getResponsiveFontSize(18, width, 14, 22),
-      fill: "#aaaaaa"
+      color: "#aaaaaa"
     }).setOrigin(0.5);
     
     // Your combo
     this.yourComboText = this.add.text(leftX, statsY + statsSpacing * 4,
       `Longest Combo: ${this.yourLongestStreak}x`, {
       fontSize: getResponsiveFontSize(18, width, 14, 22),
-      fill: "#ffff00"
+      color: "#ffff00"
     }).setOrigin(0.5);
     
     // VS text in center
     this.vsText = this.add.text(width / 2, statsY + statsSpacing * 2, "VS", {
       fontSize: getResponsiveFontSize(48, width, 36, 60),
-      fill: "#ffff00",
+      color: "#ffff00",
       fontStyle: "bold",
       stroke: "#000000",
       strokeThickness: 4
@@ -182,21 +240,21 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
       // Opponent disconnected or no data
       this.opponentLabel = this.add.text(rightX, statsY, "OPPONENT", {
         fontSize: getResponsiveFontSize(28, width, 22, 34),
-        fill: "#666666",
+        color: "#666666",
         fontStyle: "bold"
       }).setOrigin(0.5);
       
       this.opponentScoreText = this.add.text(rightX, statsY + statsSpacing * 2,
         "Disconnected", {
         fontSize: getResponsiveFontSize(22, width, 18, 26),
-        fill: "#666666",
+        color: "#666666",
         fontStyle: "italic"
       }).setOrigin(0.5);
     } else {
       // Opponent completed the match
       this.opponentLabel = this.add.text(rightX, statsY, "OPPONENT", {
         fontSize: getResponsiveFontSize(28, width, 22, 34),
-        fill: "#ff0000",
+        color: "#ff0000",
         fontStyle: "bold"
       }).setOrigin(0.5);
       
@@ -204,7 +262,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
       this.opponentScoreText = this.add.text(rightX, statsY + statsSpacing,
         `Score: ${this.opponentScore.toLocaleString()}`, {
         fontSize: getResponsiveFontSize(32, width, 24, 40),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }).setOrigin(0.5);
       
@@ -212,7 +270,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
       this.opponentAccuracyText = this.add.text(rightX, statsY + statsSpacing * 2,
         `Accuracy: ${opponentAccuracy.toFixed(1)}%`, {
         fontSize: getResponsiveFontSize(22, width, 18, 26),
-        fill: "#ffffff"
+        color: "#ffffff"
       }).setOrigin(0.5);
       
       // Opponent combo
@@ -220,7 +278,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
         this.opponentComboText = this.add.text(rightX, statsY + statsSpacing * 3,
           `Longest Combo: ${this.opponentLongestStreak}x`, {
           fontSize: getResponsiveFontSize(18, width, 14, 22),
-          fill: "#ff6666"
+          color: "#ff6666"
         }).setOrigin(0.5);
       }
     }
@@ -232,7 +290,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
         this.diffText = this.add.text(width / 2, statsY + statsSpacing * 5,
           `Difference: ${scoreDiff.toLocaleString()} points`, {
           fontSize: getResponsiveFontSize(20, width, 16, 24),
-          fill: this.isWinner ? "#00ff00" : "#ff0000",
+          color: this.isWinner ? "#00ff00" : "#ff0000",
           fontStyle: "bold"
         }).setOrigin(0.5);
       }
@@ -258,7 +316,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
       
       const rematchText = this.add.text(width / 2 - buttonSpacing, buttonY, "Rematch", {
         fontSize: buttonFontSize,
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }).setOrigin(0.5);
       
@@ -288,7 +346,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     
     const menuText = this.add.text(width / 2 + (this.roomId ? buttonSpacing : 0), buttonY, "Main Menu", {
       fontSize: buttonFontSize,
-      fill: "#ffffff",
+      color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
     
@@ -305,7 +363,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     });
   }
 
-  handleResize(gameSize) {
+  private handleResize = (gameSize?: Phaser.Structs.Size): void => {
     // Recreate UI with new dimensions
     this.setupUI(
       parseFloat(((this.yourNotesHit / this.yourTotalNotes) * 100).toFixed(1)),

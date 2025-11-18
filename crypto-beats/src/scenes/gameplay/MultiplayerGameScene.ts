@@ -1,8 +1,51 @@
 import Phaser from "phaser";
+import { Socket } from "socket.io-client";
 import io from "socket.io-client";
-import GameScene from "./GameScene.js";
-import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive.js";
-import { OpponentReplaySystem } from "./OpponentReplaySystem.js";
+import GameScene from "./GameScene";
+import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
+import { OpponentReplaySystem } from "./OpponentReplaySystem";
+import { DifficultyLevel } from "../../utils/game/difficultyManager";
+
+interface MultiplayerGameData {
+  roomId?: string;
+  isHost?: boolean;
+  startTime?: number;
+  song?: string;
+  difficulty?: string;
+  [key: string]: any;
+}
+
+interface OpponentScoreData {
+  score?: number;
+  combo?: number;
+  [key: string]: any;
+}
+
+interface OpponentInputData {
+  key: string;
+  timestamp?: number;
+  gameTime?: number;
+  quality: string;
+  [key: string]: any;
+}
+
+interface OpponentFinishedData {
+  finalScore?: number;
+  totalNotes?: number;
+  notesHit?: number;
+  longestStreak?: number;
+  [key: string]: any;
+}
+
+interface GameStartingData {
+  startTime: number;
+  [key: string]: any;
+}
+
+interface ErrorData {
+  message: string;
+  [key: string]: any;
+}
 
 /**
  * MultiplayerGameScene
@@ -10,7 +53,56 @@ import { OpponentReplaySystem } from "./OpponentReplaySystem.js";
  * Keeps all single-player functionality intact
  */
 export default class MultiplayerGameScene extends GameScene {
-  constructor(config) {
+  protected socket: Socket | null = null;
+  protected roomId: string | null = null;
+  protected isHost: boolean = false;
+  protected serverUrl: string;
+  
+  // Multiplayer state
+  protected opponentScore: number = 0;
+  protected opponentCombo: number = 0;
+  protected opponentFinished: boolean = false;
+  protected opponentTotalNotes: number = 0;
+  protected opponentNotesHit: number = 0;
+  protected opponentLongestStreak: number = 0;
+  protected gameStartTime: number | null = null;
+  protected synchronizedStart: boolean = false;
+  protected gameEndHandled: boolean = false;
+  protected gameEndSent: boolean = false;
+  protected lastScoreUpdate: number = 0;
+  
+  // Spectator view
+  protected opponentReplay: OpponentReplaySystem | null = null;
+  protected showSpectatorView: boolean = true;
+  protected lastInputUpdate: number = 0;
+  protected spectatorToggleButton: Phaser.GameObjects.Rectangle | null = null;
+  protected spectatorToggleBg?: Phaser.GameObjects.Rectangle;
+  protected spectatorToggleText?: Phaser.GameObjects.Text;
+  protected toggleFeedbackText?: Phaser.GameObjects.Text;
+  
+  // UI elements
+  protected multiplayerPanel?: Phaser.GameObjects.Rectangle;
+  protected yourLabelText?: Phaser.GameObjects.Text;
+  protected yourScoreText?: Phaser.GameObjects.Text;
+  protected yourComboText?: Phaser.GameObjects.Text;
+  protected opponentLabelText?: Phaser.GameObjects.Text;
+  protected opponentScoreText?: Phaser.GameObjects.Text;
+  protected opponentComboText?: Phaser.GameObjects.Text;
+  protected scoreDiffText?: Phaser.GameObjects.Text;
+  protected yourScoreBar?: Phaser.GameObjects.Rectangle;
+  protected opponentScoreBar?: Phaser.GameObjects.Rectangle;
+  protected connectionStatus?: Phaser.GameObjects.Arc;
+  protected countdownText?: Phaser.GameObjects.Text | null;
+  protected opponentFinishedText?: Phaser.GameObjects.Text;
+  protected errorText?: Phaser.GameObjects.Text | null;
+  protected waitingText?: Phaser.GameObjects.Text | null;
+  protected waitForOpponentTimeout?: Phaser.Time.TimerEvent | null;
+  
+  // Multiplayer song/difficulty
+  protected multiplayerSong?: string;
+  protected multiplayerDifficulty?: DifficultyLevel;
+
+  constructor(config?: Phaser.Types.Scenes.SettingsConfig) {
     // Create config with correct key BEFORE calling super
     // This prevents Phaser from registering with parent's key
     const sceneConfig = { ...config, key: "MultiplayerGameScene" };
@@ -21,41 +113,20 @@ export default class MultiplayerGameScene extends GameScene {
       this.sys.settings.key = "MultiplayerGameScene";
     }
     
-    this.socket = null;
-    this.roomId = null;
-    this.isHost = false;
-    this.serverUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:3000";
-    
-    // Multiplayer state
-    this.opponentScore = 0;
-    this.opponentCombo = 0;
-    this.opponentFinished = false;
-    this.opponentTotalNotes = 0;
-    this.opponentNotesHit = 0;
-    this.opponentLongestStreak = 0;
-    this.gameStartTime = null;
-    this.synchronizedStart = false;
-    this.gameEndHandled = false;
-    this.gameEndSent = false;
-    this.lastScoreUpdate = 0;
-    
-    // Spectator view
-    this.opponentReplay = null;
-    this.showSpectatorView = this.loadSpectatorViewPreference(); // Load from localStorage
-    this.lastInputUpdate = 0;
-    this.spectatorToggleButton = null;
+    this.serverUrl = import.meta.env?.VITE_SERVER_URL || "http://localhost:3000";
+    this.showSpectatorView = this.loadSpectatorViewPreference();
   }
 
-  init(data) {
+  init(data?: MultiplayerGameData): void {
     // Store multiplayer data
-    this.roomId = data?.roomId;
+    this.roomId = data?.roomId || null;
     this.isHost = data?.isHost || false;
-    this.gameStartTime = data?.startTime;
+    this.gameStartTime = data?.startTime || null;
     this.multiplayerSong = data?.song;
-    this.multiplayerDifficulty = data?.difficulty;
+    this.multiplayerDifficulty = data?.difficulty as DifficultyLevel | undefined;
   }
 
-  create(data) {
+  create(data?: MultiplayerGameData): void {
     // Connect to server first
     this.connectToServer();
     
@@ -96,7 +167,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  connectToServer() {
+  protected connectToServer(): void {
     try {
       // Reuse socket from lobby if available, or create new one
       // For now, create new connection
@@ -114,7 +185,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  setupMultiplayerUI() {
+  protected setupMultiplayerUI(): void {
     const { width, height } = this.scale;
     
     // Create multiplayer score panel (top of screen)
@@ -143,7 +214,7 @@ export default class MultiplayerGameScene extends GameScene {
       "YOU",
       {
         fontSize: getResponsiveFontSize(16, width, 12, 20),
-        fill: "#00ff00",
+        color: "#00ff00",
         fontStyle: "bold"
       }
     ).setOrigin(0, 0).setDepth(101);
@@ -154,7 +225,7 @@ export default class MultiplayerGameScene extends GameScene {
       "0",
       {
         fontSize: getResponsiveFontSize(32, width, 24, 40),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }
     ).setOrigin(0, 0).setDepth(101);
@@ -165,7 +236,7 @@ export default class MultiplayerGameScene extends GameScene {
       "",
       {
         fontSize: getResponsiveFontSize(18, width, 14, 22),
-        fill: "#ffff00",
+        color: "#ffff00",
         fontStyle: "bold"
       }
     ).setOrigin(0, 0).setDepth(101).setAlpha(0);
@@ -177,7 +248,7 @@ export default class MultiplayerGameScene extends GameScene {
       "OPPONENT",
       {
         fontSize: getResponsiveFontSize(16, width, 12, 20),
-        fill: "#ff0000",
+        color: "#ff0000",
         fontStyle: "bold"
       }
     ).setOrigin(1, 0).setDepth(101);
@@ -188,7 +259,7 @@ export default class MultiplayerGameScene extends GameScene {
       "0",
       {
         fontSize: getResponsiveFontSize(32, width, 24, 40),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }
     ).setOrigin(1, 0).setDepth(101);
@@ -199,7 +270,7 @@ export default class MultiplayerGameScene extends GameScene {
       "",
       {
         fontSize: getResponsiveFontSize(18, width, 14, 22),
-        fill: "#ff6666",
+        color: "#ff6666",
         fontStyle: "bold"
       }
     ).setOrigin(1, 0).setDepth(101).setAlpha(0);
@@ -211,7 +282,7 @@ export default class MultiplayerGameScene extends GameScene {
       "TIE",
       {
         fontSize: getResponsiveFontSize(20, width, 16, 24),
-        fill: "#ffff00",
+        color: "#ffff00",
         fontStyle: "bold"
       }
     ).setOrigin(0.5, 0).setDepth(101);
@@ -248,31 +319,34 @@ export default class MultiplayerGameScene extends GameScene {
       6,
       0xffff00
     ).setDepth(102);
-    
-    // Hide the original score text from parent (we're replacing it)
-    // We'll update it manually to keep it in sync
   }
   
-  setupSocketListeners() {
+  protected setupSocketListeners(): void {
     if (!this.socket) return;
     
     this.socket.on('connect', () => {
       console.log("[MultiplayerGameScene] Connected to server");
-      this.connectionStatus.setFillStyle(0x00ff00);
+      if (this.connectionStatus) {
+        this.connectionStatus.setFillStyle(0x00ff00);
+      }
     });
     
     this.socket.on('disconnect', () => {
       console.log("[MultiplayerGameScene] Disconnected from server");
-      this.connectionStatus.setFillStyle(0xff0000);
+      if (this.connectionStatus) {
+        this.connectionStatus.setFillStyle(0xff0000);
+      }
     });
     
-    this.socket.on('connect_error', (error) => {
+    this.socket.on('connect_error', (error: Error) => {
       console.error("[MultiplayerGameScene] Connection error:", error);
-      this.connectionStatus.setFillStyle(0xff0000);
+      if (this.connectionStatus) {
+        this.connectionStatus.setFillStyle(0xff0000);
+      }
     });
     
     // Opponent score update
-    this.socket.on('opponentScore', (data) => {
+    this.socket.on('opponentScore', (data: OpponentScoreData) => {
       this.opponentScore = data.score || 0;
       this.opponentCombo = data.combo || 0;
       this.updateOpponentDisplay();
@@ -284,14 +358,14 @@ export default class MultiplayerGameScene extends GameScene {
     });
     
     // Opponent input event (for spectator view)
-    this.socket.on('opponentInput', (data) => {
+    this.socket.on('opponentInput', (data: OpponentInputData) => {
       if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
         this.opponentReplay.handleOpponentInput(data);
       }
     });
     
     // Opponent finished
-    this.socket.on('opponentFinished', (data) => {
+    this.socket.on('opponentFinished', (data: OpponentFinishedData) => {
       this.opponentFinished = true;
       // Store opponent's final stats
       this.opponentScore = data.finalScore || this.opponentScore;
@@ -307,25 +381,25 @@ export default class MultiplayerGameScene extends GameScene {
     });
     
     // Game starting (synchronization)
-    this.socket.on('gameStarting', (data) => {
+    this.socket.on('gameStarting', (data: GameStartingData) => {
       console.log("[MultiplayerGameScene] Game starting signal received");
       this.gameStartTime = data.startTime;
       this.waitForSynchronizedStart();
     });
     
     // Player joined (for host)
-    this.socket.on('playerJoined', (data) => {
+    this.socket.on('playerJoined', (data: any) => {
       console.log("[MultiplayerGameScene] Player joined:", data);
     });
     
     // Error handling
-    this.socket.on('error', (data) => {
+    this.socket.on('error', (data: ErrorData) => {
       console.error("[MultiplayerGameScene] Server error:", data.message);
       this.showMultiplayerError(data.message);
     });
   }
   
-  waitForSynchronizedStart() {
+  protected waitForSynchronizedStart(): void {
     if (!this.gameStartTime || this.synchronizedStart) return;
     
     const now = Date.now();
@@ -355,7 +429,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  showCountdown(delay) {
+  protected showCountdown(delay: number): void {
     const { width, height } = this.scale;
     const countdownTime = Math.ceil(delay / 1000);
     
@@ -367,7 +441,7 @@ export default class MultiplayerGameScene extends GameScene {
       countdownTime.toString(),
       {
         fontSize: getResponsiveFontSize(120, width, 80, 160),
-        fill: "#00ff00",
+        color: "#00ff00",
         fontStyle: "bold",
         stroke: "#000000",
         strokeThickness: 8
@@ -390,7 +464,7 @@ export default class MultiplayerGameScene extends GameScene {
     }, 1000);
   }
   
-  updateScore(newScore) {
+  updateScore(newScore: number): void {
     // Call parent updateScore
     super.updateScore(newScore);
     
@@ -410,7 +484,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  updateMultiplayerScores() {
+  protected updateMultiplayerScores(): void {
     // Update your score display
     if (this.yourScoreText) {
       this.yourScoreText.setText(this.score.toLocaleString());
@@ -448,7 +522,7 @@ export default class MultiplayerGameScene extends GameScene {
     this.updateScoreBars();
   }
   
-  updateScoreDifference() {
+  protected updateScoreDifference(): void {
     if (!this.scoreDiffText) return;
     
     const diff = this.score - this.opponentScore;
@@ -469,7 +543,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  updateScoreBars() {
+  protected updateScoreBars(): void {
     if (!this.yourScoreBar || !this.opponentScoreBar) return;
     
     const totalScore = this.score + this.opponentScore;
@@ -500,7 +574,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  loadSpectatorViewPreference() {
+  protected loadSpectatorViewPreference(): boolean {
     try {
       const stored = localStorage.getItem('cryptoBeats_spectatorView');
       return stored !== null ? stored === 'true' : true; // Default to true
@@ -510,7 +584,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  saveSpectatorViewPreference(enabled) {
+  protected saveSpectatorViewPreference(enabled: boolean): void {
     try {
       localStorage.setItem('cryptoBeats_spectatorView', enabled.toString());
     } catch (error) {
@@ -518,7 +592,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  setupSpectatorToggle() {
+  protected setupSpectatorToggle(): void {
     const { width, height } = this.scale;
     
     // Toggle button (top right, below connection status)
@@ -542,24 +616,28 @@ export default class MultiplayerGameScene extends GameScene {
       this.showSpectatorView ? "👁️ ON" : "👁️ OFF",
       {
         fontSize: getResponsiveFontSize(14, width, 12, 18),
-        fill: "#ffffff",
+        color: "#ffffff",
         fontStyle: "bold"
       }
     ).setOrigin(0.5).setDepth(104);
     
     // Hover effects
     this.spectatorToggleBg.on('pointerover', () => {
-      this.spectatorToggleBg.setFillStyle(
-        this.showSpectatorView ? 0x00ff00 : 0x888888,
-        0.9
-      );
+      if (this.spectatorToggleBg) {
+        this.spectatorToggleBg.setFillStyle(
+          this.showSpectatorView ? 0x00ff00 : 0x888888,
+          0.9
+        );
+      }
     });
     
     this.spectatorToggleBg.on('pointerout', () => {
-      this.spectatorToggleBg.setFillStyle(
-        this.showSpectatorView ? 0x00aa00 : 0x666666,
-        0.8
-      );
+      if (this.spectatorToggleBg) {
+        this.spectatorToggleBg.setFillStyle(
+          this.showSpectatorView ? 0x00aa00 : 0x666666,
+          0.8
+        );
+      }
     });
     
     // Click handler
@@ -568,18 +646,22 @@ export default class MultiplayerGameScene extends GameScene {
     });
   }
   
-  toggleSpectatorView() {
+  protected toggleSpectatorView(): void {
     this.showSpectatorView = !this.showSpectatorView;
     
     // Save preference
     this.saveSpectatorViewPreference(this.showSpectatorView);
     
     // Update button appearance
-    this.spectatorToggleBg.setFillStyle(
-      this.showSpectatorView ? 0x00aa00 : 0x666666,
-      0.8
-    );
-    this.spectatorToggleText.setText(this.showSpectatorView ? "👁️ ON" : "👁️ OFF");
+    if (this.spectatorToggleBg) {
+      this.spectatorToggleBg.setFillStyle(
+        this.showSpectatorView ? 0x00aa00 : 0x666666,
+        0.8
+      );
+    }
+    if (this.spectatorToggleText) {
+      this.spectatorToggleText.setText(this.showSpectatorView ? "👁️ ON" : "👁️ OFF");
+    }
     
     // Show/hide opponent replay
     if (this.showSpectatorView) {
@@ -608,7 +690,7 @@ export default class MultiplayerGameScene extends GameScene {
     this.showToggleFeedback();
   }
   
-  showToggleFeedback() {
+  protected showToggleFeedback(): void {
     const { width, height } = this.scale;
     
     if (this.toggleFeedbackText) this.toggleFeedbackText.destroy();
@@ -619,7 +701,7 @@ export default class MultiplayerGameScene extends GameScene {
       this.showSpectatorView ? "Spectator View: ON" : "Spectator View: OFF",
       {
         fontSize: getResponsiveFontSize(24, width, 18, 30),
-        fill: this.showSpectatorView ? "#00ff00" : "#ff0000",
+        color: this.showSpectatorView ? "#00ff00" : "#ff0000",
         fontStyle: "bold",
         backgroundColor: "#000000",
         padding: { x: 15, y: 10 }
@@ -635,13 +717,13 @@ export default class MultiplayerGameScene extends GameScene {
       onComplete: () => {
         if (this.toggleFeedbackText) {
           this.toggleFeedbackText.destroy();
-          this.toggleFeedbackText = null;
+          this.toggleFeedbackText = undefined;
         }
       }
     });
   }
   
-  setupOpponentReplay() {
+  protected setupOpponentReplay(): void {
     const { width, height } = this.scale;
     
     // Create opponent view area (right side, 30% width)
@@ -660,13 +742,13 @@ export default class MultiplayerGameScene extends GameScene {
     this.opponentReplay = new OpponentReplaySystem(this, viewArea);
   }
   
-  updateOpponentDisplay() {
+  protected updateOpponentDisplay(): void {
     // This is called when opponent score updates from server
     this.updateMultiplayerScores();
   }
   
   // Override spawnKey to also spawn notes in opponent view
-  spawnKey(key, isHoldNote, duration = 0) {
+  spawnKey(key: string, isHoldNote: boolean, duration: number = 0): void {
     // Call parent to spawn note in main game
     super.spawnKey(key, isHoldNote, duration);
     
@@ -674,7 +756,7 @@ export default class MultiplayerGameScene extends GameScene {
     if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
       this.opponentReplay.spawnOpponentNote({
         key: key,
-        time: this.music ? (this.music.currentTime || 0) : 0,
+        time: this.music ? ((this.music as any).currentTime || 0) : 0,
         isHold: isHoldNote,
         duration: duration
       });
@@ -682,7 +764,7 @@ export default class MultiplayerGameScene extends GameScene {
   }
   
   // Override handlePlayerInput to send input events for spectator view
-  handlePlayerInput(event) {
+  handlePlayerInput(event: KeyboardEvent): void {
     const keyPressed = event.key.toUpperCase();
     const scoreBefore = this.score;
     const comboBefore = this.currentStreak;
@@ -717,7 +799,7 @@ export default class MultiplayerGameScene extends GameScene {
       if (['W', 'A', 'S', 'D'].includes(keyPressed)) {
         // Throttle input updates (every 50ms)
         if (!this.lastInputUpdate || (Date.now() - this.lastInputUpdate) > 50) {
-          const currentTime = this.music ? (this.music.currentTime || 0) : 0;
+          const currentTime = this.music ? ((this.music as any).currentTime || 0) : 0;
           
           this.socket.emit('playerInput', {
             key: keyPressed,
@@ -733,7 +815,7 @@ export default class MultiplayerGameScene extends GameScene {
   }
   
   // Override update to also update opponent replay
-  update(time, delta) {
+  update(time: number, delta: number): void {
     // Only update if synchronized start has occurred (or single player mode)
     if (!this.roomId || this.synchronizedStart) {
       super.update(time, delta);
@@ -751,7 +833,7 @@ export default class MultiplayerGameScene extends GameScene {
       }
       
       // Check if game ended (music stopped)
-      if (this.music && (!this.music.isPlaying || this.music.currentTime >= this.music.duration)) {
+      if (this.music && (!this.music.isPlaying || (this.music as any).currentTime >= this.music.duration)) {
         if (!this.gameEndHandled) {
           this.handleGameEnd();
         }
@@ -759,7 +841,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  showOpponentFinished(data) {
+  protected showOpponentFinished(data: OpponentFinishedData): void {
     const { width, height } = this.scale;
     
     if (this.opponentFinishedText) this.opponentFinishedText.destroy();
@@ -770,7 +852,7 @@ export default class MultiplayerGameScene extends GameScene {
       "Opponent Finished!",
       {
         fontSize: getResponsiveFontSize(32, width, 24, 40),
-        fill: "#ff0000",
+        color: "#ff0000",
         fontStyle: "bold"
       }
     ).setOrigin(0.5).setDepth(1000);
@@ -783,13 +865,13 @@ export default class MultiplayerGameScene extends GameScene {
         `Score: ${data.finalScore.toLocaleString()}`,
         {
           fontSize: getResponsiveFontSize(24, width, 18, 30),
-          fill: "#ffffff"
+          color: "#ffffff"
         }
       ).setOrigin(0.5).setDepth(1000);
     }
   }
   
-  showMultiplayerError(message) {
+  protected showMultiplayerError(message: string): void {
     const { width, height } = this.scale;
     
     if (this.errorText) this.errorText.destroy();
@@ -800,7 +882,7 @@ export default class MultiplayerGameScene extends GameScene {
       `Error: ${message}`,
       {
         fontSize: getResponsiveFontSize(18, width, 14, 22),
-        fill: "#ff0000",
+        color: "#ff0000",
         backgroundColor: "#330000",
         padding: { x: 15, y: 8 }
       }
@@ -816,7 +898,7 @@ export default class MultiplayerGameScene extends GameScene {
   }
   
   
-  handleGameEnd() {
+  protected handleGameEnd(): void {
     this.gameEndHandled = true;
     
     // Send game end to server
@@ -846,7 +928,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  showWaitingForOpponent() {
+  protected showWaitingForOpponent(): void {
     const { width, height } = this.scale;
     
     if (this.waitingText) this.waitingText.destroy();
@@ -857,7 +939,7 @@ export default class MultiplayerGameScene extends GameScene {
       "Waiting for opponent to finish...",
       {
         fontSize: getResponsiveFontSize(32, width, 24, 40),
-        fill: "#ffff00",
+        color: "#ffff00",
         fontStyle: "bold",
         backgroundColor: "#000000",
         padding: { x: 20, y: 15 }
@@ -865,7 +947,7 @@ export default class MultiplayerGameScene extends GameScene {
     ).setOrigin(0.5).setDepth(1000);
   }
   
-  transitionToDebrief() {
+  protected transitionToDebrief(): void {
     // Clear waiting timeout if it exists
     if (this.waitForOpponentTimeout) {
       this.time.removeEvent(this.waitForOpponentTimeout);
@@ -915,7 +997,7 @@ export default class MultiplayerGameScene extends GameScene {
     });
   }
   
-  shutdown() {
+  shutdown(): void {
     // Cleanup spectator toggle
     if (this.spectatorToggleBg) this.spectatorToggleBg.destroy();
     if (this.spectatorToggleText) this.spectatorToggleText.destroy();
