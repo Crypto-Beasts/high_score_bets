@@ -242,7 +242,7 @@ export class ScoreManager {
       scaleX: 1.5,
       scaleY: 1.5,
       duration: 300,
-      yoyo: true,
+      yoyo: false, // Changed from true - don't bounce back to 0
       ease: "Back.easeOut",
       onComplete: () => {
         this.scene.tweens.add({
@@ -259,18 +259,18 @@ export class ScoreManager {
     });
 
     // Particle burst for milestone
-    const particleCount = milestone === 100 ? 50 : milestone === 50 ? 30 : 20;
+    const particleCount = milestone === 100 ? 20 : milestone === 50 ? 15 : 10;
     const particles = this.scene.add.particles(width / 2, height / 2, 'noteTrail', {
-      speed: { min: 100, max: 300 },
-      scale: { start: 1, end: 0 },
-      alpha: { start: 1, end: 0 },
-      lifespan: 1000,
+      speed: { min: 50, max: 150 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.8, end: 0 },
+      lifespan: 800,
       quantity: particleCount,
       tint: milestone === 100 ? 0xffd700 : milestone === 50 ? 0xff8800 : 0xffff00,
       blendMode: Phaser.BlendModes.ADD
     });
 
-    this.scene.time.delayedCall(1000, () => {
+    this.scene.time.delayedCall(800, () => {
       particles.destroy();
     });
   }

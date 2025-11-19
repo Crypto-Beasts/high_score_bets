@@ -7,8 +7,7 @@
     "start": "node dist/server.js",
     "start:ts": "ts-node server.ts",
     "start:prod": "node dist/server.js",
-    "dev": "nodemon server.js",
-    "dev:ts": "nodemon --exec ts-node server.ts",
+    "dev": "nodemon --exec ts-node server.ts",
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "prestart": "npm run build"
