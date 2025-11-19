@@ -136,6 +136,14 @@ export default class MultiplayerGameScene extends GameScene {
       difficulty: this.multiplayerDifficulty || data?.difficulty
     });
     
+    // Override GameUpdateHandler's onGameEnd callback to prevent single-player debrief transition
+    // MultiplayerGameScene handles game end itself via handleGameEnd -> transitionToDebrief
+    if (this.gameUpdateHandler) {
+      // Store reference to original callback (if we need it)
+      // But set to undefined so GameUpdateHandler doesn't trigger single-player debrief
+      (this.gameUpdateHandler as any).onGameEnd = undefined;
+    }
+    
     // Setup multiplayer UI after parent create (so we can hide parent's score text)
     this.setupMultiplayerUI();
     
@@ -421,6 +429,12 @@ export default class MultiplayerGameScene extends GameScene {
           // Reset start time to match synchronization
           this.startTime = this.time.now;
           this.audioStartTime = Date.now();
+          
+          // Update GameUpdateHandler with synchronized audio start time
+          if (this.gameUpdateHandler) {
+            this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
+            this.gameUpdateHandler.currentNoteIndex = 0; // Reset note index for synchronized start
+          }
         }
       });
     } else {

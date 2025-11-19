@@ -51,6 +51,134 @@ export interface UnlockedAchievements {
  * Achievement definitions
  */
 export const ACHIEVEMENTS: Record<string, Achievement> = {
+  // Easy achievements - beginner friendly
+  FIRST_SONG: {
+    id: 'first_song',
+    name: 'First Steps',
+    description: 'Complete your first song',
+    icon: '🎉',
+    check: (progress, gameData) => {
+      return (progress.songsPlayed || []).length >= 1 && !gameData.failed;
+    }
+  },
+  SMALL_COMBO: {
+    id: 'small_combo',
+    name: 'Building Momentum',
+    description: 'Reach a 5x combo',
+    icon: '✨',
+    check: (progress, gameData) => {
+      return (gameData.longestStreak ?? 0) >= 5;
+    }
+  },
+  EASY_WIN: {
+    id: 'easy_win',
+    name: 'Getting Started',
+    description: 'Complete a song on easy difficulty',
+    icon: '👶',
+    check: (progress, gameData) => {
+      return gameData.difficulty === 'easy' && !gameData.failed;
+    }
+  },
+  PASSING_GRADE: {
+    id: 'passing_grade',
+    name: 'Not Bad!',
+    description: 'Get at least 50% accuracy',
+    icon: '👍',
+    check: (progress, gameData) => {
+      return (gameData.accuracy ?? 0) >= 50;
+    }
+  },
+  CLEAR_SUCCESS: {
+    id: 'clear_success',
+    name: 'Survivor',
+    description: 'Complete any song without failing',
+    icon: '✅',
+    check: (progress, gameData) => {
+      return !gameData.failed && gameData.accuracy !== undefined;
+    }
+  },
+  GOOD_COMBO: {
+    id: 'good_combo',
+    name: 'On A Roll',
+    description: 'Reach a 10x combo',
+    icon: '🎊',
+    check: (progress, gameData) => {
+      return (gameData.longestStreak ?? 0) >= 10;
+    }
+  },
+  TWO_SONGS: {
+    id: 'two_songs',
+    name: 'Double Play',
+    description: 'Complete 2 different songs',
+    icon: '🎵',
+    check: (progress, gameData) => {
+      return (progress.songsPlayed || []).length >= 2;
+    }
+  },
+  DECENT_SCORE: {
+    id: 'decent_score',
+    name: 'Getting Better',
+    description: 'Get at least 70% accuracy',
+    icon: '📈',
+    check: (progress, gameData) => {
+      return (gameData.accuracy ?? 0) >= 70;
+    }
+  },
+  C_GRADE: {
+    id: 'c_grade',
+    name: 'Average Player',
+    description: 'Get a C grade or better',
+    icon: '📊',
+    check: (progress, gameData) => {
+      const grade = gameData.grade;
+      if (!grade) return false;
+      const gradeOrder = ['S', 'A', 'B', 'C'];
+      return gradeOrder.includes(grade.toUpperCase());
+    }
+  },
+  
+  // Medium difficulty achievements
+  COMBO_CHAMP: {
+    id: 'combo_champ',
+    name: 'Combo Champion',
+    description: 'Reach a 25x combo',
+    icon: '🔥',
+    check: (progress, gameData) => {
+      return (gameData.longestStreak ?? 0) >= 25;
+    }
+  },
+  NORMAL_WIN: {
+    id: 'normal_win',
+    name: 'Stepping Up',
+    description: 'Complete a song on normal difficulty',
+    icon: '🎯',
+    check: (progress, gameData) => {
+      return gameData.difficulty === 'normal' && !gameData.failed;
+    }
+  },
+  GREAT_SCORE: {
+    id: 'great_score',
+    name: 'Great Performance',
+    description: 'Get at least 85% accuracy',
+    icon: '🌟',
+    check: (progress, gameData) => {
+      return (gameData.accuracy ?? 0) >= 85;
+    }
+  },
+  B_GRADE: {
+    id: 'b_grade',
+    name: 'Above Average',
+    description: 'Get a B grade or better',
+    icon: '💫',
+    check: (progress, gameData) => {
+      const grade = gameData.grade;
+      if (!grade) return false;
+      const gradeOrder = ['S', 'A', 'B'];
+      return gradeOrder.includes(grade.toUpperCase());
+    }
+  },
+  
+  // Hard achievements - original ones
   FIRST_PERFECT: {
     id: 'first_perfect',
     name: 'First Perfect',

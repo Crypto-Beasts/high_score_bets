@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { DIFFICULTY_LEVELS, DIFFICULTY_CONFIG, DifficultyLevel } from "../../utils/game/difficultyManager";
 import { getAllSongs, getSongById, Song } from "../../config/songs";
+import { getAllAchievements, getAchievementProgress, AchievementWithStatus } from "../../utils/game/achievements";
 import { 
   getResponsiveTitleSize, 
   getResponsiveSubtitleSize, 
@@ -51,10 +52,31 @@ export default class SongSelectionScene extends Phaser.Scene {
   private readyText?: Phaser.GameObjects.Text;
   private backButton?: Phaser.GameObjects.Rectangle;
   private backText?: Phaser.GameObjects.Text;
+  private achievementsButton?: Phaser.GameObjects.Rectangle;
+  private achievementsText?: Phaser.GameObjects.Text;
+  private achievementsPopup?: Phaser.GameObjects.Container;
+  private popupBackground?: Phaser.GameObjects.Rectangle;
+  private popupTitle?: Phaser.GameObjects.Text;
+  private popupProgress?: Phaser.GameObjects.Text;
+  private popupCloseButton?: Phaser.GameObjects.Rectangle;
+  private popupCloseText?: Phaser.GameObjects.Text;
+  private achievementCards: Phaser.GameObjects.Container[] = [];
+  private achievementCardsScrollOffset: number = 0;
+  private popupScrollbarBg?: Phaser.GameObjects.Rectangle;
+  private popupScrollbarHandle?: Phaser.GameObjects.Rectangle;
+  private popupScrollbarHandleHeight?: number;
+  private popupScrollbarHandleYMin?: number;
+  private popupScrollbarHandleYMax?: number;
   private scrollUpIndicator?: Phaser.GameObjects.Text;
   private scrollDownIndicator?: Phaser.GameObjects.Text;
+  private scrollbarBg?: Phaser.GameObjects.Rectangle;
+  private scrollbarHandle?: Phaser.GameObjects.Rectangle;
   private cardStartY?: number;
   private cardSize?: CardDimensions;
+  private availableHeight?: number;
+  private scrollbarHandleHeight?: number;
+  private scrollbarHandleYMin?: number;
+  private scrollbarHandleYMax?: number;
 
   constructor() {
     super({ key: "SongSelectionScene" });
@@ -118,7 +140,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     const titleSize = getResponsiveTitleSize(width);
     const subtitleSize = getResponsiveSubtitleSize(width);
     const bodySize = getResponsiveBodySize(width);
-    const titleY = getResponsiveSpacing(60, height);
+    const titleY = getResponsiveSpacing(50, height);
     const difficultyTitleY = getResponsiveSpacing(120, height);
     const difficultyY = getResponsiveSpacing(170, height);
     const difficultySpacing = getResponsiveSpacing(100, width);
@@ -134,7 +156,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     
     // Song count display
     const songs = getAllSongs();
-    const songCountText = this.add.text(width / 2, titleY + getResponsiveSpacing(40, height), 
+    const songCountText = this.add.text(width / 2, titleY + getResponsiveSpacing(35, height), 
       `${songs.length} ${songs.length === 1 ? 'song' : 'songs'} available`, {
       fontSize: getResponsiveFontSize(16, width, 12, 20),
       color: "#aaaaaa",
@@ -145,7 +167,7 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Difficulty Selection Section
     const difficultyTitle = this.add.text(width / 2, difficultyTitleY, "Difficulty", {
       fontSize: subtitleSize,
-      color: "#ffffff",
+      color: "#000000",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
@@ -185,6 +207,29 @@ export default class SongSelectionScene extends Phaser.Scene {
       selectDifficulty(DIFFICULTY_LEVELS.EASY, easyButton);
     });
 
+    // Hover effects for Easy button
+    easyButton.on("pointerover", () => {
+      this.tweens.killTweensOf(easyButton);
+      this.tweens.add({
+        targets: easyButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
+    easyButton.on("pointerout", () => {
+      this.tweens.killTweensOf(easyButton);
+      this.tweens.add({
+        targets: easyButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
     const normalButton = this.add.text(width / 2, difficultyY, "Normal", {
       fontSize: bodySize,
       color: "#000000",
@@ -197,6 +242,29 @@ export default class SongSelectionScene extends Phaser.Scene {
       selectDifficulty(DIFFICULTY_LEVELS.NORMAL, normalButton);
     });
 
+    // Hover effects for Normal button
+    normalButton.on("pointerover", () => {
+      this.tweens.killTweensOf(normalButton);
+      this.tweens.add({
+        targets: normalButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
+    normalButton.on("pointerout", () => {
+      this.tweens.killTweensOf(normalButton);
+      this.tweens.add({
+        targets: normalButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
     const hardButton = this.add.text(width / 2 + difficultySpacing, difficultyY, "Hard", {
       fontSize: bodySize,
       color: "#ffffff",
@@ -207,6 +275,29 @@ export default class SongSelectionScene extends Phaser.Scene {
 
     hardButton.on("pointerdown", () => {
       selectDifficulty(DIFFICULTY_LEVELS.HARD, hardButton);
+    });
+
+    // Hover effects for Hard button
+    hardButton.on("pointerover", () => {
+      this.tweens.killTweensOf(hardButton);
+      this.tweens.add({
+        targets: hardButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
+    hardButton.on("pointerout", () => {
+      this.tweens.killTweensOf(hardButton);
+      this.tweens.add({
+        targets: hardButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     // Highlight default (Normal)
@@ -259,12 +350,13 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Create song cards with responsive sizing
     const cardSize = getResponsiveCardSize(width, height);
     this.cardSize = cardSize;
-    const cardStartY = getResponsiveSpacing(250, height);
+    const cardStartY = getResponsiveSpacing(320, height);
     this.cardStartY = cardStartY;
     
     // Calculate if scrolling is needed
     const totalCardsHeight = songs.length * cardSize.spacing;
-    const availableHeight = height - cardStartY - getResponsiveSpacing(200, height); // Space for buttons
+    const availableHeight = height - cardStartY - getResponsiveSpacing(180, height); // Space for buttons
+    this.availableHeight = availableHeight;
     const needsScrolling = totalCardsHeight > availableHeight;
     
     // Create scrollable container if needed
@@ -274,6 +366,9 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Add scroll indicators if needed
     let scrollUpIndicator: Phaser.GameObjects.Text | null = null;
     let scrollDownIndicator: Phaser.GameObjects.Text | null = null;
+    let scrollbarBg: Phaser.GameObjects.Rectangle | null = null;
+    let scrollbarHandle: Phaser.GameObjects.Rectangle | null = null;
+    
     if (needsScrolling) {
       // Scroll up indicator (top)
       scrollUpIndicator = this.add.text(width / 2, cardStartY - getResponsiveSpacing(20, height), "▲", {
@@ -288,11 +383,86 @@ export default class SongSelectionScene extends Phaser.Scene {
         color: "#ffffff"
       }).setOrigin(0.5).setAlpha(0.5);
       
-      // Add scroll handlers
-      this.input.on('wheel', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number, deltaZ: number) => {
-        scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - deltaY * 0.5));
+      // Visual scrollbar
+      const scrollbarWidth = getResponsiveSpacing(8, width);
+      const scrollbarX = width / 2 + cardSize.width / 2 + getResponsiveSpacing(30, width);
+      
+      scrollbarBg = this.add.rectangle(
+        scrollbarX, cardStartY + availableHeight / 2,
+        scrollbarWidth, availableHeight,
+        0x333333, 0.5
+      );
+      
+      const handleHeight = Math.max(
+        getResponsiveSpacing(30, height),
+        (availableHeight / totalCardsHeight) * availableHeight
+      );
+      const handleYMin = cardStartY;
+      const handleYMax = cardStartY + availableHeight - handleHeight;
+      
+      // Store handle bounds for use in updateScrollIndicators
+      this.scrollbarHandleHeight = handleHeight;
+      this.scrollbarHandleYMin = handleYMin;
+      this.scrollbarHandleYMax = handleYMax;
+      
+      scrollbarHandle = this.add.rectangle(
+        scrollbarX, handleYMin + handleHeight / 2,
+        scrollbarWidth * 1.5, handleHeight,
+        0x888888, 0.8
+      ).setInteractive({ useHandCursor: true });
+      
+      // Store scrollbar elements
+      this.scrollbarBg = scrollbarBg;
+      this.scrollbarHandle = scrollbarHandle;
+      
+      // Scroll handler function
+      const updateScroll = (newOffset: number) => {
+        scrollOffset = Math.max(0, Math.min(maxScroll, newOffset));
         this.updateCardPositions(scrollOffset);
         this.updateScrollIndicators(scrollOffset, maxScroll);
+        
+        // Update scrollbar handle position
+        if (scrollbarHandle && maxScroll > 0) {
+          const handleY = handleYMin + (scrollOffset / maxScroll) * (handleYMax - handleYMin);
+          scrollbarHandle.setY(handleY + handleHeight / 2);
+        }
+      };
+      
+      // Mouse wheel scrolling
+      this.input.on('wheel', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number, deltaZ: number) => {
+        updateScroll(scrollOffset - deltaY * 0.5);
+      });
+      
+      // Click on scrollbar track to jump
+      scrollbarBg.setInteractive({ useHandCursor: true });
+      scrollbarBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        const localY = pointer.y - cardStartY;
+        const scrollRatio = localY / availableHeight;
+        const newOffset = scrollRatio * maxScroll;
+        updateScroll(newOffset);
+      });
+      
+      // Drag scrollbar handle
+      let isDragging = false;
+      scrollbarHandle.on('pointerdown', () => {
+        isDragging = true;
+      });
+      
+      this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+        if (isDragging && scrollbarHandle && pointer.isDown) {
+          const localY = Phaser.Math.Clamp(
+            pointer.y - cardStartY,
+            handleHeight / 2,
+            availableHeight - handleHeight / 2
+          );
+          scrollbarHandle.setY(cardStartY + localY);
+          const scrollRatio = (localY - handleHeight / 2) / (availableHeight - handleHeight);
+          updateScroll(scrollRatio * maxScroll);
+        }
+      });
+      
+      this.input.on('pointerup', () => {
+        isDragging = false;
       });
     }
     
@@ -454,6 +624,23 @@ export default class SongSelectionScene extends Phaser.Scene {
       fontStyle: "bold"
     }).setOrigin(0.5);
     this.readyText = readyText;
+
+    // Achievements Button - below Ready button
+    const achievementsButtonY = readyButtonY + readyButtonHeight / 2 + getResponsiveSpacing(20, height) + readyButtonHeight / 2;
+    const achievementsButtonWidth = readyButtonWidth;
+    const achievementsButtonHeight = getResponsiveSpacing(50, height);
+    const achievementsButton = this.add.rectangle(
+      width / 2, achievementsButtonY, achievementsButtonWidth, achievementsButtonHeight, 0x666666, 1
+    ).setInteractive();
+    this.achievementsButton = achievementsButton;
+    
+    const achievementsFontSize = getResponsiveFontSize(24, width, 18, 30);
+    const achievementsText = this.add.text(width / 2, achievementsButtonY, "Achievements", {
+      fontSize: achievementsFontSize,
+      color: "#ffffff",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
+    this.achievementsText = achievementsText;
     
     readyButton.on("pointerdown", () => {
       if (this.selectedMusic) {
@@ -468,17 +655,56 @@ export default class SongSelectionScene extends Phaser.Scene {
     });
     
     readyButton.on("pointerover", () => {
-      readyButton.setFillStyle(0x00ff00, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(readyButton);
+      this.tweens.killTweensOf(readyText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: readyButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: readyText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
     });
     
     readyButton.on("pointerout", () => {
-      readyButton.setFillStyle(0x00aa00, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(readyButton);
+      this.tweens.killTweensOf(readyText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: readyButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: readyText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     // Back Button - responsive
     const backButtonY = height - getResponsiveSpacing(60, height);
     const backButtonWidth = getResponsiveSpacing(150, width);
     const backButtonHeight = getResponsiveSpacing(50, height);
+    
     const backButton = this.add.rectangle(
       width / 2, backButtonY, backButtonWidth, backButtonHeight, 0x555555, 1
     ).setInteractive();
@@ -498,13 +724,101 @@ export default class SongSelectionScene extends Phaser.Scene {
       }
       this.scene.start("MainMenuScene");
     });
+
+    achievementsButton.on("pointerdown", () => {
+      this.showAchievementsPopup();
+    });
     
     backButton.on("pointerover", () => {
-      backButton.setFillStyle(0x666666, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(backButton);
+      this.tweens.killTweensOf(backText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: backButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: backText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
     });
     
     backButton.on("pointerout", () => {
-      backButton.setFillStyle(0x555555, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(backButton);
+      this.tweens.killTweensOf(backText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: backButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: backText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+
+    achievementsButton.on("pointerover", () => {
+      // Stop any existing tweens
+      this.tweens.killTweensOf(achievementsButton);
+      this.tweens.killTweensOf(achievementsText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: achievementsButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: achievementsText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+    
+    achievementsButton.on("pointerout", () => {
+      // Stop any existing tweens
+      this.tweens.killTweensOf(achievementsButton);
+      this.tweens.killTweensOf(achievementsText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: achievementsButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: achievementsText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
     
     // Store references for cleanup
@@ -538,10 +852,41 @@ export default class SongSelectionScene extends Phaser.Scene {
     if (this.readyText) this.readyText.destroy();
     if (this.backButton) this.backButton.destroy();
     if (this.backText) this.backText.destroy();
+    if (this.achievementsButton) this.achievementsButton.destroy();
+    if (this.achievementsText) this.achievementsText.destroy();
     
-    // Clear scroll indicators
+    // Clear scroll indicators and scrollbar
     if (this.scrollUpIndicator) this.scrollUpIndicator.destroy();
     if (this.scrollDownIndicator) this.scrollDownIndicator.destroy();
+    if (this.scrollbarBg) this.scrollbarBg.destroy();
+    if (this.scrollbarHandle) this.scrollbarHandle.destroy();
+    
+    // Clear achievements popup
+    if (this.achievementsPopup) {
+      // Remove handlers
+      const wheelHandler = (this.achievementsPopup as any)?._popupWheelHandler;
+      const dragHandler = (this.achievementsPopup as any)?._popupDragHandler;
+      const dragEndHandler = (this.achievementsPopup as any)?._popupDragEndHandler;
+      
+      if (wheelHandler) this.input.off('wheel', wheelHandler);
+      if (dragHandler) this.input.off('pointermove', dragHandler);
+      if (dragEndHandler) this.input.off('pointerup', dragEndHandler);
+      
+      this.achievementsPopup.destroy();
+      this.achievementsPopup = undefined;
+    }
+    this.popupBackground = undefined;
+    this.popupTitle = undefined;
+    this.popupProgress = undefined;
+    this.popupCloseButton = undefined;
+    this.popupCloseText = undefined;
+    this.popupScrollbarBg = undefined;
+    this.popupScrollbarHandle = undefined;
+    this.popupScrollbarHandleHeight = undefined;
+    this.popupScrollbarHandleYMin = undefined;
+    this.popupScrollbarHandleYMax = undefined;
+    this.achievementCards.forEach(card => card.destroy());
+    this.achievementCards = [];
     
     // Clear song cards
     this.songCards.forEach(card => {
@@ -613,6 +958,459 @@ export default class SongSelectionScene extends Phaser.Scene {
     }
     if (this.scrollDownIndicator) {
       this.scrollDownIndicator.setVisible(scrollOffset < maxScroll);
+    }
+    
+    // Update scrollbar handle position
+    if (this.scrollbarHandle && this.scrollbarHandleHeight && 
+        this.scrollbarHandleYMin !== undefined && this.scrollbarHandleYMax !== undefined && 
+        maxScroll > 0) {
+      const handleY = this.scrollbarHandleYMin + (scrollOffset / maxScroll) * (this.scrollbarHandleYMax - this.scrollbarHandleYMin);
+      this.scrollbarHandle.setY(handleY + this.scrollbarHandleHeight / 2);
+    }
+  }
+
+  private showAchievementsPopup(): void {
+    const { width, height } = this.scale;
+    
+    // Close popup if already open
+    if (this.achievementsPopup) {
+      this.hideAchievementsPopup();
+      return;
+    }
+    
+    // Get achievements data and sort: unlocked first, then locked
+    const achievements = getAllAchievements().sort((a, b) => {
+      if (a.unlocked && !b.unlocked) return -1;
+      if (!a.unlocked && b.unlocked) return 1;
+      return 0; // Maintain original order within same unlock status
+    });
+    const progress = getAchievementProgress();
+    
+    // Semi-transparent background overlay (non-interactive - only close button closes)
+    const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+    
+    // Popup container
+    const popupWidth = Math.min(getResponsiveSpacing(800, width), width * 0.9);
+    const popupHeight = Math.min(getResponsiveSpacing(700, height), height * 0.85);
+    
+    const popupBg = this.add.rectangle(
+      width / 2, height / 2,
+      popupWidth, popupHeight,
+      0x1a1a2e, 1
+    );
+    popupBg.setStrokeStyle(3, 0x444444);
+    this.popupBackground = popupBg;
+    
+    // Title
+    const titleSize = getResponsiveTitleSize(width);
+    const title = this.add.text(width / 2, height / 2 - popupHeight / 2 + getResponsiveSpacing(40, height), "Achievements", {
+      fontSize: titleSize,
+      color: "#ffffff",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
+    this.popupTitle = title;
+    
+    // Progress text
+    const progressText = this.add.text(width / 2, height / 2 - popupHeight / 2 + getResponsiveSpacing(80, height),
+      `Progress: ${progress}% (${achievements.filter(a => a.unlocked).length}/${achievements.length})`, {
+      fontSize: getResponsiveFontSize(18, width, 14, 22),
+      color: "#aaaaaa"
+    }).setOrigin(0.5);
+    this.popupProgress = progressText;
+    
+    // Progress bar
+    const progressBarWidth = getResponsiveSpacing(400, width);
+    const progressBarHeight = getResponsiveSpacing(20, height);
+    const progressBarBg = this.add.rectangle(
+      width / 2,
+      height / 2 - popupHeight / 2 + getResponsiveSpacing(110, height),
+      progressBarWidth, progressBarHeight,
+      0x333333, 1
+    );
+    
+    const progressBar = this.add.rectangle(
+      width / 2 - progressBarWidth / 2 + (progress / 100) * progressBarWidth / 2,
+      height / 2 - popupHeight / 2 + getResponsiveSpacing(110, height),
+      (progress / 100) * progressBarWidth,
+      progressBarHeight,
+      0x00ff00, 1
+    );
+    progressBar.setOrigin(0, 0.5);
+    
+    // Achievement cards container with scroll
+    const cardSpacing = getResponsiveSpacing(15, height);
+    const cardWidth = popupWidth * 0.9;
+    const cardHeight = getResponsiveSpacing(90, height);
+    const cardsContainerHeight = popupHeight - getResponsiveSpacing(250, height);
+    // Position container Y so first card's top edge aligns with visible area top
+    const cardsContainerY = height / 2 - popupHeight / 2 + getResponsiveSpacing(160, height) + cardHeight / 2;
+    
+    // Store cards for cleanup
+    this.achievementCards = [];
+    this.achievementCardsScrollOffset = 0;
+    
+    // Calculate total height and if scrolling is needed
+    const totalCardsHeight = achievements.length * (cardHeight + cardSpacing) - cardSpacing;
+    const needsScrolling = totalCardsHeight > cardsContainerHeight;
+    
+    achievements.forEach((achievement, index) => {
+      const cardY = cardsContainerY + (cardHeight + cardSpacing) * index;
+      
+      // Create container at card position - elements will use relative positions
+      const cardContainer = this.add.container(width / 2, cardY);
+      
+      // Card background (relative to container center)
+      const cardBg = this.add.rectangle(
+        0, 0, // Center of container
+        cardWidth, cardHeight,
+        achievement.unlocked ? 0x2a4a2a : 0x2a2a3e,
+        achievement.unlocked ? 0.9 : 0.7
+      );
+      
+      if (achievement.unlocked) {
+        cardBg.setStrokeStyle(2, 0x00ff00);
+      }
+      
+      // Achievement icon (relative to container)
+      const iconText = this.add.text(
+        -cardWidth / 2 + getResponsiveSpacing(50, width),
+        0, // Relative Y
+        achievement.icon,
+        {
+          fontSize: getResponsiveFontSize(40, width, 32, 48),
+        }
+      ).setOrigin(0.5).setAlpha(achievement.unlocked ? 1 : 0.3);
+      
+      // Achievement name (relative to container)
+      const nameText = this.add.text(
+        -cardWidth / 2 + getResponsiveSpacing(120, width),
+        -getResponsiveSpacing(15, height), // Relative Y
+        achievement.name,
+        {
+          fontSize: getResponsiveFontSize(20, width, 16, 24),
+          color: achievement.unlocked ? "#ffffff" : "#888888",
+          fontStyle: "bold"
+        }
+      ).setOrigin(0, 0.5);
+      
+      // Achievement description (relative to container)
+      const descText = this.add.text(
+        -cardWidth / 2 + getResponsiveSpacing(120, width),
+        getResponsiveSpacing(15, height), // Relative Y
+        achievement.description,
+        {
+          fontSize: getResponsiveFontSize(14, width, 12, 18),
+          color: achievement.unlocked ? "#aaaaaa" : "#555555",
+          wordWrap: { width: cardWidth - getResponsiveSpacing(200, width) }
+        }
+      ).setOrigin(0, 0.5);
+      
+      // Status indicator (relative to container)
+      const statusText = this.add.text(
+        cardWidth / 2 - getResponsiveSpacing(50, width),
+        0, // Relative Y
+        achievement.unlocked ? "✓" : "🔒",
+        {
+          fontSize: getResponsiveFontSize(28, width, 24, 32),
+          color: achievement.unlocked ? "#00ff00" : "#666666"
+        }
+      ).setOrigin(0.5);
+      
+      // Add elements to container
+      cardContainer.add([cardBg, iconText, nameText, descText, statusText]);
+      this.achievementCards.push(cardContainer);
+    });
+    
+    // Close button
+    const closeButtonWidth = getResponsiveSpacing(150, width);
+    const closeButtonHeight = getResponsiveSpacing(50, height);
+    const closeButton = this.add.rectangle(
+      width / 2,
+      height / 2 + popupHeight / 2 - getResponsiveSpacing(40, height),
+      closeButtonWidth, closeButtonHeight,
+      0x555555, 1
+    ).setInteractive();
+    this.popupCloseButton = closeButton;
+    
+    const closeText = this.add.text(
+      width / 2,
+      height / 2 + popupHeight / 2 - getResponsiveSpacing(40, height),
+      "Close",
+      {
+        fontSize: getResponsiveFontSize(24, width, 18, 30),
+        color: "#ffffff",
+        fontStyle: "bold"
+      }
+    ).setOrigin(0.5);
+    this.popupCloseText = closeText;
+    
+    closeButton.on("pointerdown", () => {
+      this.hideAchievementsPopup();
+    });
+    
+    closeButton.on("pointerover", () => {
+      this.tweens.killTweensOf(closeButton);
+      this.tweens.killTweensOf(closeText);
+      this.tweens.add({
+        targets: closeButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      this.tweens.add({
+        targets: closeText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+    
+    closeButton.on("pointerout", () => {
+      this.tweens.killTweensOf(closeButton);
+      this.tweens.killTweensOf(closeText);
+      this.tweens.add({
+        targets: closeButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      this.tweens.add({
+        targets: closeText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+    });
+    
+    // Create mask for achievement cards to prevent overflow
+    // Mask should start at the top of the first card (cardsContainerY - cardHeight/2)
+    const cardsMask = this.make.graphics();
+    const maskStartY = cardsContainerY - cardHeight / 2;
+    cardsMask.fillRect(
+      width / 2 - popupWidth / 2 + getResponsiveSpacing(5, width),
+      maskStartY,
+      popupWidth * 0.9 - getResponsiveSpacing(30, width), // Account for scrollbar space
+      cardsContainerHeight
+    );
+    
+    const mask = cardsMask.createGeometryMask();
+    
+    // Apply mask to each achievement card
+    this.achievementCards.forEach(card => {
+      card.setMask(mask);
+    });
+    
+    // Store popup elements in container
+    const popupContainer = this.add.container(0, 0, [
+      overlay, popupBg, title, progressText, progressBarBg, progressBar, closeButton, closeText, cardsMask
+    ]);
+    
+    // Add achievement cards to container
+    this.achievementCards.forEach(card => {
+      popupContainer.add(card);
+    });
+    
+    this.achievementsPopup = popupContainer;
+    
+    // Store scroll info for popup
+    let popupWheelHandler: ((pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number, deltaZ: number) => void) | undefined;
+    let popupScrollbarBg: Phaser.GameObjects.Rectangle | undefined;
+    let popupScrollbarHandle: Phaser.GameObjects.Rectangle | undefined;
+    
+    if (needsScrolling) {
+      const popupMaxScroll = Math.max(0, totalCardsHeight - cardsContainerHeight);
+      
+      // Visual scrollbar for popup
+      const scrollbarWidth = getResponsiveSpacing(8, width);
+      const scrollbarX = width / 2 + popupWidth / 2 - getResponsiveSpacing(20, width);
+      const maskStartY = cardsContainerY - cardHeight / 2;
+      const scrollbarY = maskStartY + cardsContainerHeight / 2;
+      
+      popupScrollbarBg = this.add.rectangle(
+        scrollbarX, scrollbarY,
+        scrollbarWidth, cardsContainerHeight,
+        0x333333, 0.5
+      ).setInteractive({ useHandCursor: true });
+      this.popupScrollbarBg = popupScrollbarBg;
+      
+      const handleHeight = Math.max(
+        getResponsiveSpacing(30, height),
+        (cardsContainerHeight / totalCardsHeight) * cardsContainerHeight
+      );
+      const handleYMin = maskStartY;
+      const handleYMax = maskStartY + cardsContainerHeight - handleHeight;
+      
+      // Store handle bounds
+      this.popupScrollbarHandleHeight = handleHeight;
+      this.popupScrollbarHandleYMin = handleYMin;
+      this.popupScrollbarHandleYMax = handleYMax;
+      
+      popupScrollbarHandle = this.add.rectangle(
+        scrollbarX, handleYMin + handleHeight / 2,
+        scrollbarWidth * 1.5, handleHeight,
+        0x888888, 0.8
+      ).setInteractive({ useHandCursor: true });
+      this.popupScrollbarHandle = popupScrollbarHandle;
+      
+      // Scroll handler function
+      const updatePopupScroll = (newOffset: number) => {
+        this.achievementCardsScrollOffset = Math.max(0, Math.min(popupMaxScroll, newOffset));
+        this.updateAchievementCardsScroll();
+        
+        // Update scrollbar handle position
+        if (popupScrollbarHandle && popupMaxScroll > 0) {
+          const handleY = handleYMin + (this.achievementCardsScrollOffset / popupMaxScroll) * (handleYMax - handleYMin);
+          popupScrollbarHandle.setY(handleY + handleHeight / 2);
+        }
+      };
+      
+      // Create a popup-specific wheel handler
+      popupWheelHandler = (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number, deltaZ: number) => {
+        if (this.achievementsPopup && this.achievementsPopup.active) {
+          updatePopupScroll(this.achievementCardsScrollOffset - deltaY * 0.5);
+        }
+      };
+      
+      // Add wheel handler that works when popup is active
+      this.input.on('wheel', popupWheelHandler);
+      
+      // Click on scrollbar track to jump
+      popupScrollbarBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        const localY = pointer.y - maskStartY;
+        const scrollRatio = localY / cardsContainerHeight;
+        updatePopupScroll(scrollRatio * popupMaxScroll);
+      });
+      
+      // Drag scrollbar handle
+      let isDragging = false;
+      popupScrollbarHandle.on('pointerdown', () => {
+        isDragging = true;
+      });
+      
+      const popupDragHandler = (pointer: Phaser.Input.Pointer) => {
+        if (isDragging && popupScrollbarHandle && pointer.isDown) {
+          const localY = Phaser.Math.Clamp(
+            pointer.y - maskStartY,
+            handleHeight / 2,
+            cardsContainerHeight - handleHeight / 2
+          );
+          popupScrollbarHandle.setY(maskStartY + localY);
+          const scrollRatio = (localY - handleHeight / 2) / (cardsContainerHeight - handleHeight);
+          updatePopupScroll(scrollRatio * popupMaxScroll);
+        }
+      };
+      
+      const popupDragEndHandler = () => {
+        isDragging = false;
+      };
+      
+      this.input.on('pointermove', popupDragHandler);
+      this.input.on('pointerup', popupDragEndHandler);
+      
+      // Store handlers for cleanup
+      (popupContainer as any)._popupWheelHandler = popupWheelHandler;
+      (popupContainer as any)._popupDragHandler = popupDragHandler;
+      (popupContainer as any)._popupDragEndHandler = popupDragEndHandler;
+      
+      // Add scrollbar to popup container
+      popupContainer.add([popupScrollbarBg, popupScrollbarHandle]);
+    }
+    
+    // Animate popup appearance
+    popupContainer.setAlpha(0);
+    popupContainer.setScale(0.8);
+    this.tweens.add({
+      targets: popupContainer,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 200,
+      ease: "Back.easeOut"
+    });
+  }
+
+  private hideAchievementsPopup(): void {
+    if (!this.achievementsPopup) return;
+    
+    // Remove popup-specific handlers if they exist
+    const wheelHandler = (this.achievementsPopup as any)._popupWheelHandler;
+    const dragHandler = (this.achievementsPopup as any)._popupDragHandler;
+    const dragEndHandler = (this.achievementsPopup as any)._popupDragEndHandler;
+    
+    if (wheelHandler) {
+      this.input.off('wheel', wheelHandler);
+    }
+    if (dragHandler) {
+      this.input.off('pointermove', dragHandler);
+    }
+    if (dragEndHandler) {
+      this.input.off('pointerup', dragEndHandler);
+    }
+    
+    // Animate popup disappearance
+    this.tweens.add({
+      targets: this.achievementsPopup,
+      alpha: 0,
+      scaleX: 0.8,
+      scaleY: 0.8,
+      duration: 150,
+      ease: "Power2",
+      onComplete: () => {
+        if (this.achievementsPopup) {
+          this.achievementsPopup.destroy();
+          this.achievementsPopup = undefined;
+        }
+        this.popupBackground = undefined;
+        this.popupTitle = undefined;
+        this.popupProgress = undefined;
+        this.popupCloseButton = undefined;
+        this.popupCloseText = undefined;
+        this.popupScrollbarBg = undefined;
+        this.popupScrollbarHandle = undefined;
+        this.popupScrollbarHandleHeight = undefined;
+        this.popupScrollbarHandleYMin = undefined;
+        this.popupScrollbarHandleYMax = undefined;
+        this.achievementCards.forEach(card => card.destroy());
+        this.achievementCards = [];
+        this.achievementCardsScrollOffset = 0;
+      }
+    });
+  }
+
+  private updateAchievementCardsScroll(): void {
+    const { width, height } = this.scale;
+    if (!this.achievementsPopup) return;
+    
+    const popupHeight = Math.min(getResponsiveSpacing(700, height), height * 0.85);
+    const cardHeight = getResponsiveSpacing(90, height);
+    const cardSpacing = getResponsiveSpacing(15, height);
+    // Position container Y so first card's top edge aligns with visible area top
+    const cardsContainerY = height / 2 - popupHeight / 2 + getResponsiveSpacing(160, height) + cardHeight / 2;
+    
+    this.achievementCards.forEach((card, index) => {
+      const baseY = cardsContainerY + (cardHeight + cardSpacing) * index;
+      // Update both X and Y to maintain container positioning
+      card.setPosition(width / 2, baseY - this.achievementCardsScrollOffset);
+    });
+    
+    // Update scrollbar handle position if it exists
+    if (this.popupScrollbarHandle && this.popupScrollbarHandleYMin !== undefined && 
+        this.popupScrollbarHandleYMax !== undefined && this.popupScrollbarHandleHeight !== undefined) {
+      const cardsContainerHeight = popupHeight - getResponsiveSpacing(250, height);
+      const totalCardsHeight = this.achievementCards.length * (cardHeight + cardSpacing) - cardSpacing;
+      const popupMaxScroll = Math.max(0, totalCardsHeight - cardsContainerHeight);
+      
+      if (popupMaxScroll > 0) {
+        const maskStartY = cardsContainerY - cardHeight / 2;
+        const handleY = maskStartY + 
+          (this.achievementCardsScrollOffset / popupMaxScroll) * 
+          (cardsContainerHeight - this.popupScrollbarHandleHeight);
+        this.popupScrollbarHandle.setY(handleY + this.popupScrollbarHandleHeight / 2);
+      }
     }
   }
 

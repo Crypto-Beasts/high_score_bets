@@ -142,143 +142,311 @@ export default class DebriefScene extends Phaser.Scene {
     const percentageHit = ((this.notesHit / this.totalNotes) * 100).toFixed(1);
     const grade = this.calculateGrade(parseFloat(percentageHit));
     const stars = this.calculateStars(parseFloat(percentageHit));
-    const crowdReaction = this.getCrowdReaction(parseFloat(percentageHit));
 
     // Responsive sizing
-    const titleSize = getResponsiveTitleSize(width);
-    const gradeSize = getResponsiveFontSize(72, width, 48, 96);
+    const gradeSize = getResponsiveFontSize(96, width, 64, 128); // Made larger since it's the hero element
     const subtitleSize = getResponsiveSubtitleSize(width);
     const bodySize = getResponsiveBodySize(width);
-    const smallSize = getResponsiveFontSize(20, width, 16, 24);
-    const titleY = getResponsiveSpacing(60, height);
-    const gradeY = getResponsiveSpacing(120, height);
-    const scoreY = getResponsiveSpacing(200, height);
+    const smallSize = getResponsiveFontSize(18, width, 14, 22); // For general small text
+    const sectionLabelSize = getResponsiveFontSize(26, width, 22, 30); // Larger for section titles
+    const gradeY = getResponsiveSpacing(100, height); // More space from top
+    const scoreY = gradeY + getResponsiveSpacing(120, height); // Positioned below large grade
 
-    // Title
-    const title = this.add.text(width / 2, titleY, "Song Complete!", {
-      fontSize: titleSize,
-      color: "#ffffff",
-      fontStyle: "bold",
-      stroke: "#000000",
-      strokeThickness: Math.max(2, Math.round(4 * (width / 1920)))
-    }).setOrigin(0.5);
-
-    // Grade Display (Large)
+    // Grade Display (Large, Hero Element) - Animated entrance
     const gradeText = this.add.text(width / 2, gradeY, grade, {
       fontSize: gradeSize,
       color: this.getGradeColor(grade),
       fontStyle: "bold",
       stroke: "#000000",
-      strokeThickness: Math.max(3, Math.round(6 * (width / 1920)))
+      strokeThickness: Math.max(4, Math.round(8 * (width / 1920)))
     }).setOrigin(0.5);
+    
+    // Animate grade appearance
+    gradeText.setAlpha(0);
+    gradeText.setScale(0.5);
+    this.tweens.add({
+      targets: gradeText,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 400,
+      ease: "Back.easeOut"
+    });
 
-    // Score Section
-    this.add.text(width / 2, scoreY, `Final Score: ${this.score.toLocaleString()}`, {
-      fontSize: subtitleSize,
-      color: "#ffffff",
+    // Score Section - positioned below grade with animation (larger font)
+    const scoreSize = getResponsiveFontSize(48, width, 36, 60); // Bigger than subtitleSize
+    const scoreText = this.add.text(width / 2, scoreY, `Score: 0`, {
+      fontSize: scoreSize,
+      color: "#000000",
       fontStyle: "bold"
     }).setOrigin(0.5);
+    
+    // Animate score text appearance
+    scoreText.setAlpha(0);
+    this.tweens.add({
+      targets: scoreText,
+      alpha: 1,
+      duration: 400,
+      delay: 500,
+      ease: "Power2",
+      onComplete: () => {
+        // Animate score counting up after text appears
+        this.tweens.addCounter({
+          from: 0,
+          to: this.score,
+          duration: 1000,
+          ease: "Power1",
+          onUpdate: (tween) => {
+            const value = Math.floor(tween.getValue());
+            scoreText.setText(`Score: ${value.toLocaleString()}`);
+          }
+        });
+      }
+    });
 
     // Accuracy with percentage bar
     const accuracyY = scoreY + getResponsiveSpacing(50, height);
-    const accuracyLabelX = width / 2 - getResponsiveSpacing(100, width);
-    this.add.text(accuracyLabelX, accuracyY, `Accuracy: ${percentageHit}%`, {
+    const accuracyLabelX = width / 2 - getResponsiveSpacing(120, width);
+    const accuracyText = this.add.text(accuracyLabelX, accuracyY, `Accuracy: 0%`, {
       fontSize: bodySize,
-      color: "#ffffff"
+      color: "#000000"
     }).setOrigin(0.5, 0.5);
     
-    // Accuracy bar - responsive
-    const barWidth = getResponsiveSpacing(300, width);
+    // Accuracy bar - responsive with animation, narrower than stats container
+    const statsContainerWidth = getResponsiveSpacing(320, width);
+    const barWidth = getResponsiveSpacing(200, width); // Much narrower than container
     const barHeight = getResponsiveSpacing(20, height);
-    const barX = width / 2 + getResponsiveSpacing(50, width);
+    const barX = width / 2 + getResponsiveSpacing(50, width); // Positioned to the right of text, moved left further
     const accuracyBarBg = this.add.rectangle(barX, accuracyY, barWidth, barHeight, 0x333333, 1);
+    const accuracyPercent = parseFloat(percentageHit);
     const accuracyBar = this.add.rectangle(
-      barX - barWidth / 2 + (barWidth * (parseFloat(percentageHit) / 100)) / 2,
+      barX - barWidth / 2,
       accuracyY,
-      barWidth * (parseFloat(percentageHit) / 100),
+      0, // Start at 0 width
       barHeight,
-      this.getAccuracyColor(parseFloat(percentageHit)),
+      this.getAccuracyColor(accuracyPercent),
       1
     );
+    accuracyBar.setOrigin(0, 0.5);
+    
+    // Animate accuracy text and bar appearance
+    accuracyText.setAlpha(0);
+    accuracyBarBg.setAlpha(0);
+    accuracyBar.setAlpha(0);
+    this.tweens.add({
+      targets: [accuracyText, accuracyBarBg, accuracyBar],
+      alpha: 1,
+      duration: 400,
+      delay: 600,
+      ease: "Power2",
+      onComplete: () => {
+        // Calculate the left edge once (where bar starts and stays)
+        const barLeftEdge = barX - barWidth / 2;
+        
+        // Animate accuracy bar and text counting up
+        this.tweens.addCounter({
+          from: 0,
+          to: accuracyPercent,
+          duration: 800,
+          ease: "Power2",
+          onUpdate: (tween) => {
+            const value = tween.getValue();
+            accuracyText.setText(`Accuracy: ${value.toFixed(1)}%`);
+            
+            // Update bar width only - x position stays constant at left edge
+            const barProgress = value / 100;
+            accuracyBar.width = barWidth * barProgress;
+            accuracyBar.x = barLeftEdge; // Keep x position constant
+          },
+          onComplete: () => {
+            // Ensure final values are set exactly after animation completes
+            accuracyText.setText(`Accuracy: ${accuracyPercent.toFixed(1)}%`);
+            const finalProgress = accuracyPercent / 100;
+            accuracyBar.width = barWidth * finalProgress;
+            accuracyBar.x = barLeftEdge; // Ensure x position is correct
+          }
+        });
+      }
+    });
 
-    // Statistics Grid - responsive
-    const statsY = accuracyY + getResponsiveSpacing(60, height);
-    const statsLeftX = width / 2 - getResponsiveSpacing(200, width);
-    const statsRightX = width / 2 + getResponsiveSpacing(200, width);
-    const statsSpacing = getResponsiveSpacing(35, height);
-    const statValueSize = getResponsiveFontSize(22, width, 18, 26);
-
-    // Left column
-    this.add.text(statsLeftX, statsY, "Hit Breakdown:", {
-      fontSize: smallSize,
-      color: "#aaaaaa",
-      fontStyle: "bold"
-    }).setOrigin(0, 0.5);
-
-    this.add.text(statsLeftX, statsY + statsSpacing, `Perfect: ${this.perfectCount}`, {
-      fontSize: statValueSize,
-      color: "#00ff00"
-    }).setOrigin(0, 0.5);
-
-    this.add.text(statsLeftX, statsY + statsSpacing * 2, `Good: ${this.goodCount}`, {
-      fontSize: statValueSize,
-      color: "#ffff00"
-    }).setOrigin(0, 0.5);
-
-    this.add.text(statsLeftX, statsY + statsSpacing * 3, `Miss: ${this.missCount}`, {
-      fontSize: statValueSize,
-      color: "#ff0000"
-    }).setOrigin(0, 0.5);
-
-    // Right column
-    this.add.text(statsRightX, statsY, "Combo Stats:", {
-      fontSize: smallSize,
-      color: "#aaaaaa",
-      fontStyle: "bold"
-    }).setOrigin(1, 0.5);
-
-    this.add.text(statsRightX, statsY + statsSpacing, `Longest: ${this.longestStreak}x`, {
-      fontSize: statValueSize,
-      color: "#ffffff"
-    }).setOrigin(1, 0.5);
-
-    this.add.text(statsRightX, statsY + statsSpacing * 2, `Average: ${this.averageCombo}x`, {
-      fontSize: statValueSize,
-      color: "#ffffff"
-    }).setOrigin(1, 0.5);
-
-    this.add.text(statsRightX, statsY + statsSpacing * 3, `Total Notes: ${this.totalNotes}`, {
-      fontSize: statValueSize,
-      color: "#ffffff"
-    }).setOrigin(1, 0.5);
-
-    // Stars - responsive
-    const starsY = statsY + statsSpacing * 4 + getResponsiveSpacing(20, height);
+    // Stars - display actual star symbols, positioned below accuracy
+    const starsY = accuracyY + getResponsiveSpacing(50, height);
     const starsSize = getResponsiveFontSize(36, width, 28, 48);
-    this.add.text(width / 2, starsY, `⭐ Stars: ${"⭐".repeat(stars)}`, {
+    // Create star display: filled stars for achieved, empty star for not achieved
+    const starDisplay = "⭐".repeat(stars) + "☆".repeat(5 - stars);
+    const starsText = this.add.text(width / 2, starsY, starDisplay, {
       fontSize: starsSize,
       color: "#ffcc00",
       fontStyle: "bold"
     }).setOrigin(0.5);
+    
+    // Animate stars appearance
+    starsText.setAlpha(0);
+    this.tweens.add({
+      targets: starsText,
+      alpha: 1,
+      duration: 400,
+      delay: 1200,
+      ease: "Power2"
+    });
 
-    // Crowd reaction - responsive
-    const reactionY = starsY + getResponsiveSpacing(50, height);
-    this.add.text(width / 2, reactionY, crowdReaction, {
-      fontSize: bodySize,
+    // Statistics Grid - spacious layout, width matches accuracy bar
+    const statsY = starsY + getResponsiveSpacing(40, height); // Positioned below stars
+    // Content offset - move contents down a bit from container top
+    const contentOffsetY = getResponsiveSpacing(15, height);
+    // Use same container width as defined earlier for accuracy bar
+    // statsContainerWidth already defined above
+    const statsLeftX = width / 2 - statsContainerWidth / 2 + getResponsiveSpacing(30, width); // Left edge with padding
+    const statsRightX = width / 2 + statsContainerWidth / 2 - getResponsiveSpacing(30, width); // Right edge with padding
+    const statsSpacing = getResponsiveSpacing(38, height); // Increased from 20 to 38 for more space
+    const statValueSize = getResponsiveFontSize(27, width, 22, 32); // Increased from 20 to 27 for better visibility
+
+    // Stats container background for visual grouping - larger with rounded corners
+    const statsContainerHeight = statsSpacing * 4 + getResponsiveSpacing(30, height); // Increased from 3 rows to 4 rows + 30
+    // Center container on the content (accounting for contentOffsetY)
+    const containerCenterX = width / 2;
+    const containerCenterY = statsY + contentOffsetY + statsSpacing * 1.5 + getResponsiveSpacing(15, height);
+    const cornerRadius = getResponsiveSpacing(12, width); // Rounded corners
+    
+    // Create rounded rectangle using graphics for rounded corners
+    const statsContainerBg = this.add.graphics();
+    statsContainerBg.fillStyle(0x000000, 0.3);
+    statsContainerBg.fillRoundedRect(
+      containerCenterX - statsContainerWidth / 2,
+      containerCenterY - statsContainerHeight / 2,
+      statsContainerWidth,
+      statsContainerHeight,
+      cornerRadius
+    );
+    statsContainerBg.lineStyle(2, 0x444444, 1);
+    statsContainerBg.strokeRoundedRect(
+      containerCenterX - statsContainerWidth / 2,
+      containerCenterY - statsContainerHeight / 2,
+      statsContainerWidth,
+      statsContainerHeight,
+      cornerRadius
+    );
+    
+    // Add subtle glow to container border (matching grade color)
+    const gradeColor = this.getGradeColor(grade);
+    const containerGlow = this.add.graphics();
+    containerGlow.lineStyle(1, Phaser.Display.Color.HexStringToColor(gradeColor).color, 0.5);
+    containerGlow.strokeRoundedRect(
+      containerCenterX - statsContainerWidth / 2 - 1,
+      containerCenterY - statsContainerHeight / 2 - 1,
+      statsContainerWidth + 2,
+      statsContainerHeight + 2,
+      cornerRadius + 1
+    );
+    containerGlow.setBlendMode(Phaser.BlendModes.ADD);
+    
+    // Animate stats container appearance
+    statsContainerBg.setAlpha(0);
+    containerGlow.setAlpha(0);
+    this.tweens.add({
+      targets: [statsContainerBg, containerGlow],
+      alpha: 1,
+      duration: 400,
+      delay: 1400,
+      ease: "Power2"
+    });
+
+    // Left column - Hit Breakdown (4 items: Label, Perfect, Good, Miss)
+    const hitBreakdownLabel = this.add.text(statsLeftX, statsY + contentOffsetY, "Hit Breakdown:", {
+      fontSize: sectionLabelSize,
       color: "#ffffff",
-      fontStyle: "italic"
-    }).setOrigin(0.5);
+      fontStyle: "bold"
+    }).setOrigin(0, 0.5);
+    
+    const perfectText = this.add.text(statsLeftX, statsY + contentOffsetY + statsSpacing, `Perfect: ${this.perfectCount}`, {
+      fontSize: statValueSize,
+      color: "#00ff00"
+    }).setOrigin(0, 0.5);
 
-    // Buttons - responsive
-    const buttonY = reactionY + getResponsiveSpacing(80, height);
-    const buttonSpacing = getResponsiveSpacing(80, width);
-    const buttonWidth = getResponsiveSpacing(150, width);
+    const goodText = this.add.text(statsLeftX, statsY + contentOffsetY + statsSpacing * 2, `Good: ${this.goodCount}`, {
+      fontSize: statValueSize,
+      color: "#ffff00"
+    }).setOrigin(0, 0.5);
+
+    const missText = this.add.text(statsLeftX, statsY + contentOffsetY + statsSpacing * 3, `Miss: ${this.missCount}`, {
+      fontSize: statValueSize,
+      color: "#ff0000"
+    }).setOrigin(0, 0.5);
+    
+    // Animate left column stats
+    [hitBreakdownLabel, perfectText, goodText, missText].forEach((text, index) => {
+      text.setAlpha(0);
+      this.tweens.add({
+        targets: text,
+        alpha: 1,
+        duration: 300,
+        delay: 1600 + (index * 100),
+        ease: "Power2"
+      });
+    });
+
+    // Right column - Combo Stats (4 items: Label, Longest, Average, Total)
+    const comboStatsLabel = this.add.text(statsRightX, statsY + contentOffsetY, "Combo Stats:", {
+      fontSize: sectionLabelSize,
+      color: "#ffffff",
+      fontStyle: "bold"
+    }).setOrigin(1, 0.5);
+
+    const longestText = this.add.text(statsRightX, statsY + contentOffsetY + statsSpacing, `Longest: ${this.longestStreak}x`, {
+      fontSize: statValueSize,
+      color: "#ffffff"
+    }).setOrigin(1, 0.5);
+
+    const averageText = this.add.text(statsRightX, statsY + contentOffsetY + statsSpacing * 2, `Average: ${this.averageCombo}x`, {
+      fontSize: statValueSize,
+      color: "#ffffff"
+    }).setOrigin(1, 0.5);
+
+    const totalText = this.add.text(statsRightX, statsY + contentOffsetY + statsSpacing * 3, `Total Notes: ${this.totalNotes}`, {
+      fontSize: statValueSize,
+      color: "#ffffff"
+    }).setOrigin(1, 0.5);
+    
+    // Animate right column stats
+    [comboStatsLabel, longestText, averageText, totalText].forEach((text, index) => {
+      text.setAlpha(0);
+      this.tweens.add({
+        targets: text,
+        alpha: 1,
+        duration: 300,
+        delay: 1600 + (index * 100),
+        ease: "Power2"
+      });
+    });
+
+    // Buttons - responsive (stacked vertically like main menu)
+    // Spacing adjusted to position buttons higher
+    const buttonY = containerCenterY + statsContainerHeight / 2 + getResponsiveSpacing(80, height);
+    
+    // Animate buttons appearance
+    const animateButtonIn = (button: Phaser.GameObjects.Rectangle, text: Phaser.GameObjects.Text, delay: number) => {
+      button.setAlpha(0);
+      text.setAlpha(0);
+      button.setScale(0.8);
+      text.setScale(0.8);
+      this.tweens.add({
+        targets: [button, text],
+        alpha: 1,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 300,
+        delay: delay,
+        ease: "Back.easeOut"
+      });
+    };
+    const buttonSpacing = getResponsiveSpacing(70, height);
+    const buttonWidth = getResponsiveSpacing(200, width);
     const buttonHeight = getResponsiveSpacing(50, height);
     const buttonFontSize = getResponsiveFontSize(24, width, 18, 30);
 
     // Retry Button
     const retryButton = this.add.rectangle(
-      width / 2 - buttonSpacing,
+      width / 2,
       buttonY,
       buttonWidth,
       buttonHeight,
@@ -286,7 +454,7 @@ export default class DebriefScene extends Phaser.Scene {
       1
     ).setInteractive();
 
-    const retryText = this.add.text(width / 2 - buttonSpacing, buttonY, "Retry", {
+    const retryText = this.add.text(width / 2, buttonY, "Retry", {
       fontSize: buttonFontSize,
       color: "#ffffff",
       fontStyle: "bold"
@@ -298,26 +466,66 @@ export default class DebriefScene extends Phaser.Scene {
         difficulty: this.difficulty
       });
     });
+    
+    animateButtonIn(retryButton, retryText, 2000);
 
     retryButton.on("pointerover", () => {
-      retryButton.setFillStyle(0x00ff00, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(retryButton);
+      this.tweens.killTweensOf(retryText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: retryButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: retryText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     retryButton.on("pointerout", () => {
-      retryButton.setFillStyle(0x00aa00, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(retryButton);
+      this.tweens.killTweensOf(retryText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: retryButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: retryText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     // Share Button
     const shareButton = this.add.rectangle(
       width / 2,
-      buttonY,
+      buttonY + buttonSpacing,
       buttonWidth,
       buttonHeight,
       0x0088cc,
       1
     ).setInteractive();
 
-    const shareText = this.add.text(width / 2, buttonY, "Share", {
+    const shareText = this.add.text(width / 2, buttonY + buttonSpacing, "Share", {
       fontSize: buttonFontSize,
       color: "#ffffff",
       fontStyle: "bold"
@@ -326,26 +534,66 @@ export default class DebriefScene extends Phaser.Scene {
     shareButton.on("pointerdown", () => {
       this.shareScore();
     });
+    
+    animateButtonIn(shareButton, shareText, 2100);
 
     shareButton.on("pointerover", () => {
-      shareButton.setFillStyle(0x00aaff, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(shareButton);
+      this.tweens.killTweensOf(shareText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: shareButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: shareText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     shareButton.on("pointerout", () => {
-      shareButton.setFillStyle(0x0088cc, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(shareButton);
+      this.tweens.killTweensOf(shareText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: shareButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: shareText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     // Menu Button
     const menuButton = this.add.rectangle(
-      width / 2 + buttonSpacing,
-      buttonY,
+      width / 2,
+      buttonY + buttonSpacing * 2,
       buttonWidth,
       buttonHeight,
       0x555555,
       1
     ).setInteractive();
 
-    const menuText = this.add.text(width / 2 + buttonSpacing, buttonY, "Menu", {
+    const menuText = this.add.text(width / 2, buttonY + buttonSpacing * 2, "Menu", {
       fontSize: buttonFontSize,
       color: "#ffffff",
       fontStyle: "bold"
@@ -354,13 +602,53 @@ export default class DebriefScene extends Phaser.Scene {
     menuButton.on("pointerdown", () => {
       this.scene.start("MainMenuScene");
     });
+    
+    animateButtonIn(menuButton, menuText, 2200);
 
     menuButton.on("pointerover", () => {
-      menuButton.setFillStyle(0x666666, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(menuButton);
+      this.tweens.killTweensOf(menuText);
+      
+      // Animate scale only (no color change)
+      this.tweens.add({
+        targets: menuButton,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: menuText,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        duration: 150,
+        ease: "Power2"
+      });
     });
 
     menuButton.on("pointerout", () => {
-      menuButton.setFillStyle(0x555555, 1);
+      // Stop any existing tweens
+      this.tweens.killTweensOf(menuButton);
+      this.tweens.killTweensOf(menuText);
+      
+      // Animate back to original
+      this.tweens.add({
+        targets: menuButton,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
+      
+      this.tweens.add({
+        targets: menuText,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        duration: 150,
+        ease: "Power2"
+      });
     });
   }
 
