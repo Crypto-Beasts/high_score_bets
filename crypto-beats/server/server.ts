@@ -72,6 +72,22 @@ const rooms = new Map<string, Room>();
 
 // Helper function to get room by socket
 function getRoomBySocket(socket: Socket): RoomWithId | null {
+  // First check if socket is in any socket.io room
+  const socketRooms = Array.from(socket.rooms);
+  for (const roomId of socketRooms) {
+    // Skip the socket's own room (socket.id is always in its own room)
+    if (roomId === socket.id) continue;
+    
+    // Check if this is one of our game rooms
+    if (roomId.startsWith('room_') && rooms.has(roomId)) {
+      const room = rooms.get(roomId);
+      if (room) {
+        return { id: roomId, ...room };
+      }
+    }
+  }
+  
+  // Fallback: check by player ID (for backwards compatibility)
   for (const [roomId, room] of rooms.entries()) {
     if (room.players.some(p => p.id === socket.id)) {
       return { id: roomId, ...room };
@@ -137,9 +153,26 @@ io.on('connection', (socket: Socket) => {
         return;
       }
       
+      // Check if room is full
       if (room.players.length >= 2) {
-        socket.emit('error', { message: 'Room is full' });
-        return;
+        // Room is full, but if it's in 'starting' status, allow this socket to join
+        // (This handles the case where a player creates a new socket after joining)
+        if (room.status === 'starting') {
+          socket.join(roomId);
+          // Resend gameStarting event to this new socket
+          const startTime = Date.now() + 1000; // Give them 1 second to sync
+          socket.emit('gameStarting', {
+            song: room.song,
+            difficulty: room.difficulty,
+            startTime: startTime,
+            players: room.players.map(p => p.id)
+          });
+          console.log(`[Server] Resent gameStarting to new socket ${socket.id} in room ${roomId}`);
+          return;
+        } else {
+          socket.emit('error', { message: 'Room is full' });
+          return;
+        }
       }
       
       if (room.status !== 'waiting') {
@@ -157,7 +190,9 @@ io.on('connection', (socket: Socket) => {
       io.to(roomId).emit('playerJoined', {
         playerId: socket.id,
         playerCount: room.players.length,
-        totalPlayers: 2
+        totalPlayers: 2,
+        song: room.song,
+        difficulty: room.difficulty
       });
       
       // If room is full, start game countdown
@@ -213,9 +248,19 @@ io.on('connection', (socket: Socket) => {
 
   // Score update
   socket.on('scoreUpdate', (data: ScoreUpdateData) => {
+    console.log(`[Server] Received scoreUpdate from ${socket.id}:`, data);
     const room = getRoomBySocket(socket);
-    if (!room || room.status !== 'playing') return;
+    if (!room) {
+      console.log(`[Server] WARNING: Socket ${socket.id} not in any room`);
+      return;
+    }
+    // Allow score updates when room is 'starting' or 'playing' (to handle timing edge cases)
+    if (room.status !== 'playing' && room.status !== 'starting') {
+      console.log(`[Server] WARNING: Room ${room.id} status is '${room.status}', not 'playing' or 'starting'`);
+      return;
+    }
     
+    console.log(`[Server] Broadcasting scoreUpdate from ${socket.id} to room ${room.id} (status: ${room.status})`);
     // Broadcast to other players in room
     socket.to(room.id).emit('opponentScore', {
       playerId: socket.id,
@@ -241,8 +286,12 @@ io.on('connection', (socket: Socket) => {
 
   // Game end
   socket.on('gameEnd', (data: GameEndData) => {
+    console.log(`[Server] Received gameEnd from ${socket.id}:`, data);
     const room = getRoomBySocket(socket);
-    if (!room) return;
+    if (!room) {
+      console.log(`[Server] WARNING: Socket ${socket.id} not in any room for gameEnd`);
+      return;
+    }
     
     console.log(`[Server] Player ${socket.id} finished game in room ${room.id}`);
     
@@ -256,8 +305,19 @@ io.on('connection', (socket: Socket) => {
       longestStreak: data.longestStreak || 0
     });
     
-    // Mark player as finished
-    const player = room.players.find(p => p.id === socket.id);
+    // Mark player as finished (try to find in players array, or add if reconnected)
+    let player = room.players.find(p => p.id === socket.id);
+    if (!player) {
+      // Socket reconnected - add to players array for tracking (but limit to 2 players max)
+      if (room.players.length < 2) {
+        player = { id: socket.id, ready: true, finished: false };
+        room.players.push(player);
+        console.log(`[Server] Added reconnected socket ${socket.id} to room ${room.id} players`);
+      } else {
+        // Room already has 2 players, just track this socket finished status separately
+        console.log(`[Server] Socket ${socket.id} finished but not in players array (reconnected socket)`);
+      }
+    }
     if (player) {
       player.finished = true;
       player.finalScore = data.score || 0;

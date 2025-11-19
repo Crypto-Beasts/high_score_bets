@@ -369,7 +369,88 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
   }
   
   private handleResize = (gameSize?: Phaser.Structs.Size): void => {
-    // Could recreate UI if needed
+    const { width, height } = this.scale;
+    
+    // Handle different parameter formats
+    let resizeWidth, resizeHeight;
+    if (gameSize && gameSize.width && gameSize.height) {
+      resizeWidth = gameSize.width;
+      resizeHeight = gameSize.height;
+    } else {
+      resizeWidth = width || window.innerWidth || 1920;
+      resizeHeight = height || window.innerHeight || 1080;
+    }
+    
+    // Update background
+    if (this.backgroundImage) {
+      this.backgroundImage.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundImage.setDisplaySize(resizeWidth, resizeHeight);
+    }
+    if (this.backgroundRect) {
+      this.backgroundRect.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundRect.setSize(resizeWidth, resizeHeight);
+    }
+    
+    // Update title
+    if (this.titleText) {
+      const titleSize = getResponsiveTitleSize(resizeWidth);
+      this.titleText.setPosition(resizeWidth / 2, resizeHeight / 6);
+      this.titleText.setFontSize(titleSize);
+    }
+    
+    // Update status text
+    if (this.statusText) {
+      this.statusText.setPosition(resizeWidth / 2, resizeHeight / 6 + getResponsiveSpacing(60, resizeHeight));
+      this.statusText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
+    
+    // Update buttons
+    const buttonSize = getResponsiveButtonSize(resizeWidth, resizeHeight);
+    const buttonSpacing = getResponsiveSpacing(80, resizeHeight);
+    const buttonY = resizeHeight / 2;
+    
+    if (this.createButton) {
+      this.createButton.setPosition(resizeWidth / 2, buttonY);
+      this.createButton.setFontSize(buttonSize.fontSize);
+      // Padding is set in style, will be recalculated with new fontSize
+    }
+    
+    if (this.joinButton) {
+      this.joinButton.setPosition(resizeWidth / 2, buttonY + buttonSpacing);
+      this.joinButton.setFontSize(buttonSize.fontSize);
+    }
+    
+    if (this.backButton) {
+      this.backButton.setPosition(resizeWidth / 2, buttonY + buttonSpacing * 2);
+      this.backButton.setFontSize(buttonSize.fontSize);
+    }
+    
+    // Update room info (if visible)
+    if (this.roomInfoText) {
+      this.roomInfoText.setPosition(resizeWidth / 2, resizeHeight / 2 - getResponsiveSpacing(60, resizeHeight));
+      this.roomInfoText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+    }
+    
+    if (this.roomIdText) {
+      this.roomIdText.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.roomIdText.setFontSize(getResponsiveFontSize(24, resizeWidth, 18, 30));
+    }
+    
+    if (this.copyButton) {
+      this.copyButton.setPosition(resizeWidth / 2, resizeHeight / 2 + getResponsiveSpacing(50, resizeHeight));
+      this.copyButton.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
+    
+    if (this.waitingText) {
+      this.waitingText.setPosition(resizeWidth / 2, resizeHeight / 2 + getResponsiveSpacing(100, resizeHeight));
+      this.waitingText.setFontSize(getResponsiveFontSize(20, resizeWidth, 16, 24));
+    }
+    
+    // Update error text
+    if (this.errorText) {
+      this.errorText.setPosition(resizeWidth / 2, resizeHeight - getResponsiveSpacing(100, resizeHeight));
+      this.errorText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
   }
   
   shutdown(): void {

@@ -116,27 +116,44 @@ export default class DebriefScene extends Phaser.Scene {
     }
     
     // Clear existing UI if recreating - destroy all children except background
+    const existingBackgroundImage = this.backgroundImage;
+    const existingBackgroundRect = this.backgroundRect;
+    
     const childrenToDestroy: Phaser.GameObjects.GameObject[] = [];
     this.children.list.forEach(child => {
-      if (child !== this.backgroundImage && child !== this.backgroundRect) {
+      if (child !== existingBackgroundImage && child !== existingBackgroundRect) {
         childrenToDestroy.push(child);
       }
     });
-    childrenToDestroy.forEach(child => child.destroy());
-    
-    if (this.backgroundImage) this.backgroundImage.destroy();
-    if (this.backgroundRect) this.backgroundRect.destroy();
+    childrenToDestroy.forEach(child => {
+      if (child && child.active) {
+        child.destroy();
+      }
+    });
     
     // Set background color as fallback
     this.cameras.main.setBackgroundColor(0x000000);
     
-    // Background fills screen
-    if (this.textures.exists("background")) {
-      this.backgroundImage = this.add.image(width / 2, height / 2, "background");
-      this.backgroundImage.setDisplaySize(width, height);
+    // Background fills screen - update existing or create new
+    if (existingBackgroundImage) {
+      // Update existing background image
+      existingBackgroundImage.setPosition(width / 2, height / 2);
+      existingBackgroundImage.setDisplaySize(width, height);
+      this.backgroundImage = existingBackgroundImage;
+    } else if (existingBackgroundRect) {
+      // Update existing background rect
+      existingBackgroundRect.setPosition(width / 2, height / 2);
+      existingBackgroundRect.setSize(width, height);
+      this.backgroundRect = existingBackgroundRect;
     } else {
-      // Fallback: solid color background if image doesn't load
-      this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+      // Create new background
+      if (this.textures.exists("background")) {
+        this.backgroundImage = this.add.image(width / 2, height / 2, "background");
+        this.backgroundImage.setDisplaySize(width, height);
+      } else {
+        // Fallback: solid color background if image doesn't load
+        this.backgroundRect = this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
+      }
     }
 
     const percentageHit = ((this.notesHit / this.totalNotes) * 100).toFixed(1);
@@ -653,7 +670,31 @@ export default class DebriefScene extends Phaser.Scene {
   }
 
   private handleResize = (gameSize?: Phaser.Structs.Size): void => {
-    // Recreate UI with new dimensions
+    const { width, height } = this.scale;
+    
+    // Handle different parameter formats
+    let resizeWidth, resizeHeight;
+    if (gameSize && gameSize.width && gameSize.height) {
+      resizeWidth = gameSize.width;
+      resizeHeight = gameSize.height;
+    } else {
+      resizeWidth = width || window.innerWidth || 1920;
+      resizeHeight = height || window.innerHeight || 1080;
+    }
+    
+    // Update background if it exists
+    if (this.backgroundImage) {
+      this.backgroundImage.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundImage.setDisplaySize(resizeWidth, resizeHeight);
+    }
+    if (this.backgroundRect) {
+      this.backgroundRect.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundRect.setSize(resizeWidth, resizeHeight);
+    }
+    
+    // Recreate UI with new dimensions (setupUI handles cleanup properly)
+    // This is safer than trying to update individual elements since setupUI
+    // destroys and recreates everything in the correct order
     this.setupUI();
   }
 

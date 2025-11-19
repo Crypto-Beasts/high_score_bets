@@ -418,6 +418,10 @@ export default class GameScene extends Phaser.Scene {
       currentDifficulty: this.currentDifficulty,
       onAchievementUnlocked: (achievementId) => {
         this.scoreManager?.showAchievementNotification(achievementId);
+      },
+      onScoreChanged: (newScore) => {
+        // Call updateScore to allow multiplayer override
+        this.updateScore(newScore);
       }
     });
 
@@ -761,10 +765,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   protected handleResize(gameSize?: Phaser.Structs.Size): void {
-    if (!this.gameplayLayoutManager || !this.noteManager || !this.holdNoteSystem || !this.visualEffects) {
-      return;
-    }
-
     const { width, height } = this.scale;
     
     // Handle different parameter formats
@@ -777,7 +777,7 @@ export default class GameScene extends Phaser.Scene {
       resizeHeight = height || window.innerHeight || 1080;
     }
     
-    // Resize background
+    // Always update background (even if managers aren't ready)
     if (this.backgroundImage) {
       this.backgroundImage.setPosition(resizeWidth / 2, resizeHeight / 2);
       this.backgroundImage.setDisplaySize(resizeWidth, resizeHeight);
@@ -787,7 +787,13 @@ export default class GameScene extends Phaser.Scene {
       this.backgroundRect.setSize(resizeWidth, resizeHeight);
     }
     
-    // Update score manager UI texts
+    // Update dim overlay
+    if (this.dimOverlay) {
+      this.dimOverlay.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.dimOverlay.setSize(resizeWidth, resizeHeight);
+    }
+    
+    // Update score manager UI texts (even if managers aren't ready)
     if (this.scoreManager) {
       const scoreX = getResponsiveSpacing(20, resizeWidth);
       const scoreY = getResponsiveSpacing(20, resizeHeight);
@@ -804,14 +810,27 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     
+    // Only update gameplay-specific elements if managers are ready
+    if (!this.gameplayLayoutManager || !this.noteManager || !this.holdNoteSystem || !this.visualEffects) {
+      // Managers not ready yet - we've already updated background and score texts
+      return;
+    }
+    
     // Use GameplayLayoutManager for resize
     const result = this.gameplayLayoutManager.handleResize(
       gameSize,
       {
         updateNotePositions: (fallingKeys, layout, keyLanes) => {
           // Update all falling notes' positions to match new lane positions
-          fallingKeys.forEach(note => {
-            if (note.keyType && keyLanes[note.keyType]) {
+          // Always use noteManager's fallingKeys (the passed parameter is empty array)
+          if (!this.noteManager || !this.noteManager.fallingKeys) {
+            return; // NoteManager not ready yet
+          }
+          
+          const notesToUpdate = this.noteManager.fallingKeys;
+          
+          notesToUpdate.forEach(note => {
+            if (note && note.keyType && keyLanes[note.keyType]) {
               // Update note x position to new lane position
               note.x = keyLanes[note.keyType].x;
               
@@ -842,15 +861,20 @@ export default class GameScene extends Phaser.Scene {
         },
         updateKeyVisuals: (keyVisuals, keyGlows, layout, keyLanes, height) => {
           // Update key visuals position and size
-          const keyVisualY = height - getResponsiveSpacing(50, height);
-          Object.keys(keyVisuals).forEach(key => {
-            if (keyVisuals[key] && keyLanes[key]) {
-              keyVisuals[key].setPosition(keyLanes[key].x, keyVisualY);
-              keyVisuals[key].setDisplaySize(layout.keySize, layout.keySize);
+          // Use this.keyVisuals and this.keyGlows (the passed parameters are empty)
+          if (!this.keyVisuals || !this.keyGlows) {
+            return; // Key visuals not initialized yet
+          }
+          
+          const keyVisualY = resizeHeight - getResponsiveSpacing(50, resizeHeight);
+          Object.keys(this.keyVisuals).forEach(key => {
+            if (this.keyVisuals[key] && keyLanes[key]) {
+              this.keyVisuals[key].setPosition(keyLanes[key].x, keyVisualY);
+              this.keyVisuals[key].setDisplaySize(layout.keySize, layout.keySize);
             }
-            if (keyGlows && keyGlows[key] && keyLanes[key]) {
-              keyGlows[key].setPosition(keyLanes[key].x, keyVisualY);
-              keyGlows[key].setRadius(layout.keySize * 0.7);
+            if (this.keyGlows[key] && keyLanes[key]) {
+              this.keyGlows[key].setPosition(keyLanes[key].x, keyVisualY);
+              this.keyGlows[key].setRadius(layout.keySize * 0.7);
             }
           });
         },
@@ -872,6 +896,12 @@ export default class GameScene extends Phaser.Scene {
       this.judgmentLine = this.gameplayLayoutManager.createJudgmentLine(this.judgmentLine);
     }
 
+    // Update keyLanes with new layout (from gameplayLayoutManager)
+    if (this.gameplayLayoutManager.gameplayLayout) {
+      this.keyLanes = this.gameplayLayoutManager.gameplayLayout.lanes;
+      this.gameplayLayout = this.gameplayLayoutManager.gameplayLayout;
+    }
+
     // Update screen height and cull margin cache
     this.screenHeight = resizeHeight;
     this.cullMargin = getResponsiveSpacing(100, resizeHeight);
@@ -882,7 +912,7 @@ export default class GameScene extends Phaser.Scene {
       this.gameUpdateHandler.updateScreenDimensions(this.screenHeight, this.cullMargin);
     }
 
-    // Update note manager layout
+    // Update note manager layout (this also updates note positions)
     if (this.gameplayLayoutManager.gameplayLayout) {
       this.noteManager.updateLayout(this.gameplayLayoutManager.gameplayLayout);
     }
@@ -964,9 +994,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   protected updateScore(newScore: number): void {
-    if (this.scoreManager) {
-      this.scoreManager.updateScore(newScore);
-    }
+    // This method is called by ScoreManager.onScoreChanged callback
+    // In single-player mode, we don't need to do anything here
+    // In multiplayer mode, MultiplayerGameScene overrides this to send score updates
+    // We don't call scoreManager.updateScore here to avoid infinite loop
+    // (scoreManager.updateScore -> onScoreChanged -> this.updateScore -> scoreManager.updateScore...)
   }
 
   /**

@@ -68,6 +68,10 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
   private opponentAccuracyText?: Phaser.GameObjects.Text;
   private opponentComboText?: Phaser.GameObjects.Text;
   private diffText?: Phaser.GameObjects.Text;
+  private rematchButton?: Phaser.GameObjects.Rectangle;
+  private rematchText?: Phaser.GameObjects.Text;
+  private menuButton?: Phaser.GameObjects.Rectangle;
+  private menuText?: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "MultiplayerDebriefScene" });
@@ -105,6 +109,13 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     } else {
       this.isWinner = this.yourScore > this.opponentScore;
       this.isTie = this.yourScore === this.opponentScore;
+      console.log(`[MultiplayerDebriefScene] Score comparison:`, {
+        yourScore: this.yourScore,
+        opponentScore: this.opponentScore,
+        isWinner: this.isWinner,
+        isTie: this.isTie,
+        diff: this.yourScore - this.opponentScore
+      });
     }
   }
 
@@ -130,6 +141,48 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     
     // Listen for resize events
     this.scale.on('resize', this.handleResize, this);
+  }
+
+  private destroyUI(): void {
+    // Destroy all UI elements
+    if (this.titleText) this.titleText.destroy();
+    if (this.songText) this.songText.destroy();
+    if (this.scorePanel) this.scorePanel.destroy();
+    if (this.yourLabel) this.yourLabel.destroy();
+    if (this.yourScoreText) this.yourScoreText.destroy();
+    if (this.yourAccuracyText) this.yourAccuracyText.destroy();
+    if (this.yourBreakdownText) this.yourBreakdownText.destroy();
+    if (this.yourComboText) this.yourComboText.destroy();
+    if (this.vsText) this.vsText.destroy();
+    if (this.opponentLabel) this.opponentLabel.destroy();
+    if (this.opponentScoreText) this.opponentScoreText.destroy();
+    if (this.opponentAccuracyText) this.opponentAccuracyText.destroy();
+    if (this.opponentComboText) this.opponentComboText.destroy();
+    if (this.diffText) this.diffText.destroy();
+    if (this.rematchButton) this.rematchButton.destroy();
+    if (this.rematchText) this.rematchText.destroy();
+    if (this.menuButton) this.menuButton.destroy();
+    if (this.menuText) this.menuText.destroy();
+    
+    // Clear references
+    this.titleText = undefined;
+    this.songText = undefined;
+    this.scorePanel = undefined;
+    this.yourLabel = undefined;
+    this.yourScoreText = undefined;
+    this.yourAccuracyText = undefined;
+    this.yourBreakdownText = undefined;
+    this.yourComboText = undefined;
+    this.vsText = undefined;
+    this.opponentLabel = undefined;
+    this.opponentScoreText = undefined;
+    this.opponentAccuracyText = undefined;
+    this.opponentComboText = undefined;
+    this.diffText = undefined;
+    this.rematchButton = undefined;
+    this.rematchText = undefined;
+    this.menuButton = undefined;
+    this.menuText = undefined;
   }
 
   private setupUI(yourAccuracy: number, opponentAccuracy: number): void {
@@ -305,7 +358,7 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
     
     // Rematch button (if room still exists)
     if (this.roomId) {
-      const rematchButton = this.add.rectangle(
+      this.rematchButton = this.add.rectangle(
         width / 2 - buttonSpacing,
         buttonY,
         buttonWidth,
@@ -314,28 +367,32 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
         1
       ).setInteractive();
       
-      const rematchText = this.add.text(width / 2 - buttonSpacing, buttonY, "Rematch", {
+      this.rematchText = this.add.text(width / 2 - buttonSpacing, buttonY, "Rematch", {
         fontSize: buttonFontSize,
         color: "#ffffff",
         fontStyle: "bold"
       }).setOrigin(0.5);
       
-      rematchButton.on("pointerdown", () => {
+      this.rematchButton.on("pointerdown", () => {
         // Go back to multiplayer lobby to create/join new room
         this.scene.start("MultiplayerLobbyScene");
       });
       
-      rematchButton.on("pointerover", () => {
-        rematchButton.setFillStyle(0x00ff00, 1);
+      this.rematchButton.on("pointerover", () => {
+        if (this.rematchButton) {
+          this.rematchButton.setFillStyle(0x00ff00, 1);
+        }
       });
       
-      rematchButton.on("pointerout", () => {
-        rematchButton.setFillStyle(0x00aa00, 1);
+      this.rematchButton.on("pointerout", () => {
+        if (this.rematchButton) {
+          this.rematchButton.setFillStyle(0x00aa00, 1);
+        }
       });
     }
     
     // Main Menu button
-    const menuButton = this.add.rectangle(
+    this.menuButton = this.add.rectangle(
       width / 2 + (this.roomId ? buttonSpacing : 0),
       buttonY,
       buttonWidth,
@@ -344,31 +401,57 @@ export default class MultiplayerDebriefScene extends Phaser.Scene {
       1
     ).setInteractive();
     
-    const menuText = this.add.text(width / 2 + (this.roomId ? buttonSpacing : 0), buttonY, "Main Menu", {
+    this.menuText = this.add.text(width / 2 + (this.roomId ? buttonSpacing : 0), buttonY, "Main Menu", {
       fontSize: buttonFontSize,
       color: "#ffffff",
       fontStyle: "bold"
     }).setOrigin(0.5);
     
-    menuButton.on("pointerdown", () => {
+    this.menuButton.on("pointerdown", () => {
       this.scene.start("MainMenuScene");
     });
     
-    menuButton.on("pointerover", () => {
-      menuButton.setFillStyle(0x666666, 1);
+    this.menuButton.on("pointerover", () => {
+      if (this.menuButton) {
+        this.menuButton.setFillStyle(0x666666, 1);
+      }
     });
     
-    menuButton.on("pointerout", () => {
-      menuButton.setFillStyle(0x555555, 1);
+    this.menuButton.on("pointerout", () => {
+      if (this.menuButton) {
+        this.menuButton.setFillStyle(0x555555, 1);
+      }
     });
   }
 
   private handleResize = (gameSize?: Phaser.Structs.Size): void => {
-    // Recreate UI with new dimensions
-    this.setupUI(
-      parseFloat(((this.yourNotesHit / this.yourTotalNotes) * 100).toFixed(1)),
-      this.opponentAccuracy || 0
-    );
+    const { width, height } = this.scale;
+    
+    // Handle different parameter formats
+    let resizeWidth, resizeHeight;
+    if (gameSize && gameSize.width && gameSize.height) {
+      resizeWidth = gameSize.width;
+      resizeHeight = gameSize.height;
+    } else {
+      resizeWidth = width || window.innerWidth || 1920;
+      resizeHeight = height || window.innerHeight || 1080;
+    }
+    
+    // Update background
+    if (this.backgroundImage) {
+      this.backgroundImage.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundImage.setDisplaySize(resizeWidth, resizeHeight);
+    }
+    if (this.backgroundRect) {
+      this.backgroundRect.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundRect.setSize(resizeWidth, resizeHeight);
+    }
+    
+    // Destroy old UI and recreate with new dimensions
+    this.destroyUI();
+    const yourAccuracy = parseFloat(((this.yourNotesHit / this.yourTotalNotes) * 100).toFixed(1));
+    const opponentAccuracy = this.opponentAccuracy || 0;
+    this.setupUI(yourAccuracy, opponentAccuracy);
   }
 }
 
