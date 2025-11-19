@@ -136,6 +136,14 @@ export default class MultiplayerGameScene extends GameScene {
       difficulty: this.multiplayerDifficulty || data?.difficulty
     });
     
+    // IMPORTANT: Stop music if it started automatically (parent class starts it)
+    // We need to wait for synchronized start in multiplayer
+    if (this.music && this.music.isPlaying) {
+      this.music.stop();
+      this.musicStarted = false;
+      this.audioStartTime = 0;
+    }
+    
     // Override GameUpdateHandler's onGameEnd callback to prevent single-player debrief transition
     // MultiplayerGameScene handles game end itself via handleGameEnd -> transitionToDebrief
     if (this.gameUpdateHandler) {
@@ -158,8 +166,12 @@ export default class MultiplayerGameScene extends GameScene {
       this.comboMultiplierText.setVisible(false);
     }
     
-    // Setup socket listeners after parent create
-    this.setupSocketListeners();
+    // Socket listeners are already set up in connectToServer()
+    // But if socket was already connected, set them up here as well
+    if (this.socket && this.socket.connected) {
+      // Listeners might already be set up, but ensure gameStarting is handled
+      // (This is a safety check in case setupSocketListeners was called before socket connected)
+    }
     
     // Setup spectator view toggle button
     this.setupSpectatorToggle();
@@ -170,6 +182,8 @@ export default class MultiplayerGameScene extends GameScene {
     }
     
     // Wait for synchronization before starting
+    // If gameStartTime was passed in init (host), wait immediately
+    // If not (joining player), wait for gameStarting event
     if (this.gameStartTime) {
       this.waitForSynchronizedStart();
     }
@@ -183,6 +197,9 @@ export default class MultiplayerGameScene extends GameScene {
         transports: ['websocket'],
         reconnection: true
       });
+      
+      // Set up socket listeners BEFORE joining room (so we don't miss gameStarting event)
+      this.setupSocketListeners();
       
       // If we have a roomId, join it
       if (this.roomId) {
@@ -374,17 +391,27 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Opponent finished
     this.socket.on('opponentFinished', (data: OpponentFinishedData) => {
+      console.log(`[MultiplayerGameScene] Received opponentFinished:`, data);
       this.opponentFinished = true;
-      // Store opponent's final stats
-      this.opponentScore = data.finalScore || this.opponentScore;
+      // Store opponent's final stats - use finalScore if provided, otherwise keep current score
+      if (data.finalScore !== undefined && data.finalScore !== null) {
+        this.opponentScore = data.finalScore;
+        console.log(`[MultiplayerGameScene] Updated opponentScore to final score: ${this.opponentScore}`);
+      }
       this.opponentTotalNotes = data.totalNotes || 0;
       this.opponentNotesHit = data.notesHit || 0;
       this.opponentLongestStreak = data.longestStreak || 0;
+      
+      // Update the display with final score
+      this.updateMultiplayerScores();
       this.showOpponentFinished(data);
       
       // If we already finished, transition to debrief now
       if (this.gameEndHandled) {
+        console.log(`[MultiplayerGameScene] We already finished, transitioning to debrief now`);
         this.transitionToDebrief();
+      } else {
+        console.log(`[MultiplayerGameScene] We haven't finished yet, waiting for our game to end`);
       }
     });
     
@@ -424,22 +451,83 @@ export default class MultiplayerGameScene extends GameScene {
         this.synchronizedStart = true;
         console.log("[MultiplayerGameScene] Synchronized start!");
         
-        // Ensure music starts at the right time
-        if (this.music && !this.musicStarted) {
-          // Reset start time to match synchronization
-          this.startTime = this.time.now;
-          this.audioStartTime = Date.now();
-          
-          // Update GameUpdateHandler with synchronized audio start time
-          if (this.gameUpdateHandler) {
-            this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
-            this.gameUpdateHandler.currentNoteIndex = 0; // Reset note index for synchronized start
-          }
-        }
+        // Start music at synchronized time
+        this.startSynchronizedMusic();
       });
     } else {
       // Start time already passed, start immediately
       this.synchronizedStart = true;
+      this.startSynchronizedMusic();
+    }
+  }
+  
+  protected startSynchronizedMusic(): void {
+    if (!this.music) {
+      console.error("[MultiplayerGameScene] Music not available for synchronized start");
+      return;
+    }
+    
+    // Stop music if it's already playing (shouldn't be, but just in case)
+    if (this.music.isPlaying) {
+      this.music.stop();
+    }
+    
+    // Calculate when to start music based on first note
+    const firstNoteTime = this.songData && this.songData.length > 0 ? this.songData[0].time : 0;
+    const FALL_TIME = 2.0; // Same as parent class
+    const musicStartTime = Math.max(0, firstNoteTime - FALL_TIME);
+    
+    // Set start times
+    this.startTime = this.time.now;
+    // audioStartTime will be set when music actually starts playing
+    
+    // Start music at the calculated time
+    const startMusic = () => {
+      try {
+        if (this.music && !this.music.isPlaying) {
+          this.music.play();
+          // Record actual audio start time for accurate timing
+          this.audioStartTime = Date.now();
+          this.musicStarted = true;
+          
+          // Update pause menu with music state
+          if (this.pauseMenuManager) {
+            this.pauseMenuManager.updateMusic(this.music, this.musicStarted);
+          }
+          
+          // Update GameUpdateHandler with synchronized audio start time
+          if (this.gameUpdateHandler) {
+            this.gameUpdateHandler.updateMusic(this.music);
+            this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
+            this.gameUpdateHandler.currentNoteIndex = 0; // Reset note index for synchronized start
+          }
+          
+          console.log(`[MultiplayerGameScene] Music started at synchronized time. First note at ${firstNoteTime}s`);
+        }
+      } catch (error) {
+        console.error(`[MultiplayerGameScene] Error starting synchronized music:`, error);
+        // Fallback: use current time
+        this.audioStartTime = Date.now();
+        this.musicStarted = true;
+        
+        if (this.pauseMenuManager) {
+          this.pauseMenuManager.updateMusic(this.music, this.musicStarted);
+        }
+        
+        if (this.gameUpdateHandler) {
+          this.gameUpdateHandler.updateMusic(this.music);
+          this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
+          this.gameUpdateHandler.currentNoteIndex = 0;
+        }
+      }
+    };
+    
+    // If music should start immediately (musicStartTime <= 0), start now
+    // Otherwise, delay by the calculated time
+    if (musicStartTime <= 0) {
+      startMusic();
+    } else {
+      this.time.delayedCall(musicStartTime * 1000, startMusic);
     }
   }
   
@@ -479,7 +567,8 @@ export default class MultiplayerGameScene extends GameScene {
   }
   
   updateScore(newScore: number): void {
-    // Call parent updateScore
+    // This is called by ScoreManager.onScoreChanged callback
+    // Parent updateScore does nothing (to avoid infinite loop)
     super.updateScore(newScore);
     
     // Update multiplayer UI
@@ -542,8 +631,9 @@ export default class MultiplayerGameScene extends GameScene {
     const diff = this.score - this.opponentScore;
     const absDiff = Math.abs(diff);
     
-    if (absDiff < 100) {
-      // Tie (within 100 points)
+    // Only show "TIE" if scores are exactly equal or within 5 points (to account for rounding)
+    if (absDiff <= 5) {
+      // Tie (within 5 points)
       this.scoreDiffText.setText("TIE");
       this.scoreDiffText.setFill("#ffff00");
     } else if (diff > 0) {
@@ -846,9 +936,34 @@ export default class MultiplayerGameScene extends GameScene {
         }
       }
       
-      // Check if game ended (music stopped)
-      if (this.music && (!this.music.isPlaying || (this.music as any).currentTime >= this.music.duration)) {
-        if (!this.gameEndHandled) {
+      // Check if game ended (music stopped or song finished)
+      if (this.music) {
+        const currentTime = this.getCurrentAudioTime();
+        const musicDuration = this.music.duration || 0;
+        const isMusicStopped = !this.music.isPlaying;
+        const hasReachedEnd = musicDuration > 0 && currentTime >= musicDuration;
+        
+        // Also check if all notes have been processed and enough time has passed
+        const lastNoteTime = this.songData && this.songData.length > 0 
+          ? this.songData[this.songData.length - 1].time 
+          : 0;
+        const allNotesProcessed = this.currentNoteIndex >= (this.songData?.length || 0);
+        const timeAfterLastNote = lastNoteTime > 0 ? (currentTime - lastNoteTime) : 0;
+        const songFinished = allNotesProcessed && timeAfterLastNote > 2.0; // 2 seconds after last note
+        
+        if (!this.gameEndHandled && (isMusicStopped || hasReachedEnd || songFinished)) {
+          console.log(`[MultiplayerGameScene] Game end detected:`, {
+            isMusicStopped,
+            hasReachedEnd,
+            songFinished,
+            currentTime: currentTime.toFixed(2),
+            musicDuration: musicDuration.toFixed(2),
+            lastNoteTime: lastNoteTime.toFixed(2),
+            timeAfterLastNote: timeAfterLastNote.toFixed(2),
+            allNotesProcessed,
+            currentNoteIndex: this.currentNoteIndex,
+            totalNotes: this.songData?.length || 0
+          });
           this.handleGameEnd();
         }
       }
@@ -913,11 +1028,20 @@ export default class MultiplayerGameScene extends GameScene {
   
   
   protected handleGameEnd(): void {
+    console.log(`[MultiplayerGameScene] handleGameEnd called, opponentFinished: ${this.opponentFinished}, gameEndSent: ${this.gameEndSent}`);
     this.gameEndHandled = true;
     
     // Send game end to server
     if (this.socket && this.socket.connected && !this.gameEndSent) {
       const percentageHit = this.totalNotes > 0 ? (this.notesHit / this.totalNotes) * 100 : 0;
+      
+      console.log(`[MultiplayerGameScene] Sending gameEnd to server:`, {
+        score: this.score,
+        accuracy: percentageHit,
+        totalNotes: this.totalNotes,
+        notesHit: this.notesHit,
+        longestStreak: this.longestStreak
+      });
       
       this.socket.emit('gameEnd', {
         score: this.score,
@@ -927,17 +1051,26 @@ export default class MultiplayerGameScene extends GameScene {
         longestStreak: this.longestStreak
       });
       this.gameEndSent = true;
+    } else {
+      console.log(`[MultiplayerGameScene] Cannot send gameEnd:`, {
+        hasSocket: !!this.socket,
+        connected: this.socket?.connected,
+        gameEndSent: this.gameEndSent
+      });
     }
     
     // If opponent hasn't finished yet, wait a bit for their final stats
     if (!this.opponentFinished) {
+      console.log(`[MultiplayerGameScene] Opponent hasn't finished, waiting...`);
       this.showWaitingForOpponent();
       // Wait up to 10 seconds for opponent to finish
       this.waitForOpponentTimeout = this.time.delayedCall(10000, () => {
+        console.log(`[MultiplayerGameScene] Timeout reached, transitioning to debrief`);
         this.transitionToDebrief();
       });
     } else {
       // Opponent already finished, transition immediately
+      console.log(`[MultiplayerGameScene] Opponent already finished, transitioning immediately`);
       this.transitionToDebrief();
     }
   }
@@ -962,6 +1095,8 @@ export default class MultiplayerGameScene extends GameScene {
   }
   
   protected transitionToDebrief(): void {
+    console.log(`[MultiplayerGameScene] transitionToDebrief called`);
+    
     // Clear waiting timeout if it exists
     if (this.waitForOpponentTimeout) {
       this.time.removeEvent(this.waitForOpponentTimeout);
@@ -975,6 +1110,15 @@ export default class MultiplayerGameScene extends GameScene {
     }
     
     // Transition to multiplayer debrief scene
+    console.log(`[MultiplayerGameScene] Starting MultiplayerDebriefScene with data:`, {
+      score: this.score,
+      opponentScore: this.opponentScore,
+      opponentFinished: this.opponentFinished,
+      totalNotes: this.totalNotes,
+      notesHit: this.notesHit,
+      opponentTotalNotes: this.opponentTotalNotes,
+      opponentNotesHit: this.opponentNotesHit
+    });
     const percentageHit = this.totalNotes > 0 ? (this.notesHit / this.totalNotes) * 100 : 0;
     const averageCombo = this.comboHistory.length > 0
       ? this.comboHistory.reduce((a, b) => a + b, 0) / this.comboHistory.length
@@ -1009,6 +1153,146 @@ export default class MultiplayerGameScene extends GameScene {
       difficulty: this.currentDifficulty,
       roomId: this.roomId
     });
+  }
+  
+  protected handleResize(gameSize?: Phaser.Structs.Size): void {
+    // Call parent resize handler first (handles gameplay elements)
+    super.handleResize(gameSize);
+    
+    const { width, height } = this.scale;
+    
+    // Handle different parameter formats
+    let resizeWidth, resizeHeight;
+    if (gameSize && gameSize.width && gameSize.height) {
+      resizeWidth = gameSize.width;
+      resizeHeight = gameSize.height;
+    } else {
+      resizeWidth = width || window.innerWidth || 1920;
+      resizeHeight = height || window.innerHeight || 1080;
+    }
+    
+    // Update multiplayer UI panel
+    if (this.multiplayerPanel) {
+      const panelY = getResponsiveSpacing(10, resizeHeight);
+      const panelHeight = getResponsiveSpacing(120, resizeHeight);
+      this.multiplayerPanel.setPosition(resizeWidth / 2, panelY + panelHeight / 2);
+      this.multiplayerPanel.setSize(resizeWidth, panelHeight);
+    }
+    
+    // Update score panel elements
+    const panelY = getResponsiveSpacing(10, resizeHeight);
+    const labelY = panelY + getResponsiveSpacing(15, resizeHeight);
+    const leftX = getResponsiveSpacing(20, resizeWidth);
+    const rightX = resizeWidth - getResponsiveSpacing(20, resizeWidth);
+    
+    // Your score elements
+    if (this.yourLabelText) {
+      this.yourLabelText.setPosition(leftX, labelY);
+      this.yourLabelText.setFontSize(getResponsiveFontSize(16, resizeWidth, 12, 20));
+    }
+    if (this.yourScoreText) {
+      this.yourScoreText.setPosition(leftX, labelY + getResponsiveSpacing(25, resizeHeight));
+      this.yourScoreText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+    }
+    if (this.yourComboText) {
+      this.yourComboText.setPosition(leftX, labelY + getResponsiveSpacing(60, resizeHeight));
+      this.yourComboText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
+    
+    // Opponent score elements
+    if (this.opponentLabelText) {
+      this.opponentLabelText.setPosition(rightX, labelY);
+      this.opponentLabelText.setFontSize(getResponsiveFontSize(16, resizeWidth, 12, 20));
+    }
+    if (this.opponentScoreText) {
+      this.opponentScoreText.setPosition(rightX, labelY + getResponsiveSpacing(25, resizeHeight));
+      this.opponentScoreText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+    }
+    if (this.opponentComboText) {
+      this.opponentComboText.setPosition(rightX, labelY + getResponsiveSpacing(60, resizeHeight));
+      this.opponentComboText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
+    
+    // Score difference text
+    if (this.scoreDiffText) {
+      this.scoreDiffText.setPosition(resizeWidth / 2, labelY + getResponsiveSpacing(25, resizeHeight));
+      this.scoreDiffText.setFontSize(getResponsiveFontSize(20, resizeWidth, 16, 24));
+    }
+    
+    // Score bars
+    const barY = labelY + getResponsiveSpacing(85, resizeHeight);
+    const barWidth = resizeWidth * 0.35;
+    const barHeight = getResponsiveSpacing(8, resizeHeight);
+    
+    if (this.yourScoreBar) {
+      this.yourScoreBar.setPosition(
+        resizeWidth / 2 - barWidth / 2 - getResponsiveSpacing(10, resizeWidth),
+        barY
+      );
+      this.yourScoreBar.setSize(barWidth, barHeight);
+    }
+    if (this.opponentScoreBar) {
+      this.opponentScoreBar.setPosition(
+        resizeWidth / 2 + barWidth / 2 + getResponsiveSpacing(10, resizeWidth),
+        barY
+      );
+      this.opponentScoreBar.setSize(barWidth, barHeight);
+    }
+    
+    // Connection status indicator
+    if (this.connectionStatus) {
+      this.connectionStatus.setPosition(
+        resizeWidth - getResponsiveSpacing(15, resizeWidth),
+        panelY + getResponsiveSpacing(15, resizeHeight)
+      );
+    }
+    
+    // Spectator toggle button
+    if (this.spectatorToggleBg) {
+      const buttonX = resizeWidth - getResponsiveSpacing(100, resizeWidth);
+      const buttonY = getResponsiveSpacing(100, resizeHeight);
+      this.spectatorToggleBg.setPosition(buttonX, buttonY);
+      this.spectatorToggleBg.setSize(
+        getResponsiveSpacing(80, resizeWidth),
+        getResponsiveSpacing(30, resizeHeight)
+      );
+    }
+    if (this.spectatorToggleText) {
+      const buttonX = resizeWidth - getResponsiveSpacing(100, resizeWidth);
+      const buttonY = getResponsiveSpacing(100, resizeHeight);
+      this.spectatorToggleText.setPosition(buttonX, buttonY);
+      this.spectatorToggleText.setFontSize(getResponsiveFontSize(14, resizeWidth, 12, 18));
+    }
+    
+    // Countdown text
+    if (this.countdownText) {
+      this.countdownText.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.countdownText.setFontSize(getResponsiveFontSize(120, resizeWidth, 80, 160));
+    }
+    
+    // Opponent finished text
+    if (this.opponentFinishedText) {
+      this.opponentFinishedText.setPosition(
+        resizeWidth / 2,
+        resizeHeight / 2 - getResponsiveSpacing(100, resizeHeight)
+      );
+      this.opponentFinishedText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+    }
+    
+    // Error text
+    if (this.errorText) {
+      this.errorText.setPosition(
+        resizeWidth / 2,
+        resizeHeight - getResponsiveSpacing(100, resizeHeight)
+      );
+      this.errorText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+    }
+    
+    // Waiting text
+    if (this.waitingText) {
+      this.waitingText.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.waitingText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+    }
   }
   
   shutdown(): void {

@@ -18,6 +18,7 @@ export interface ScoreManagerConfig {
   currentSongId: string;
   currentDifficulty: DifficultyLevel;
   onAchievementUnlocked?: (achievementId: string) => void;
+  onScoreChanged?: (newScore: number) => void;
 }
 
 export class ScoreManager {
@@ -29,6 +30,7 @@ export class ScoreManager {
   private currentSongId: string;
   private currentDifficulty: DifficultyLevel;
   private onAchievementUnlocked?: (achievementId: string) => void;
+  private onScoreChanged?: (newScore: number) => void;
 
   // Score state
   public score: number = 0;
@@ -54,6 +56,7 @@ export class ScoreManager {
     this.currentSongId = config.currentSongId;
     this.currentDifficulty = config.currentDifficulty;
     this.onAchievementUnlocked = config.onAchievementUnlocked;
+    this.onScoreChanged = config.onScoreChanged;
   }
 
   /**
@@ -64,6 +67,11 @@ export class ScoreManager {
     // Animate score change
     if (newScore !== this.lastScore) {
       const scoreDiff = newScore - this.lastScore;
+      
+      // Notify scene of score change (for multiplayer sync)
+      if (this.onScoreChanged) {
+        this.onScoreChanged(newScore);
+      }
       
       // Update text
       if (this.scoreText) {

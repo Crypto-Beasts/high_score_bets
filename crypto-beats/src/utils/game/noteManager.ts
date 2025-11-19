@@ -236,6 +236,25 @@ export class NoteManager {
    */
   updateLayout(gameplayLayout: GameplayLayout): void {
     this.gameplayLayout = gameplayLayout;
+    this.keyLanes = gameplayLayout.lanes;
+    
+    // Update positions of all currently falling notes to match new lane positions
+    this.fallingKeys.forEach(note => {
+      if (note && note.keyType && this.keyLanes[note.keyType]) {
+        // Update note x position to new lane position
+        note.x = this.keyLanes[note.keyType].x;
+        
+        // Update note size if it's a sprite
+        if (note.setDisplaySize && this.gameplayLayout) {
+          note.setDisplaySize(this.gameplayLayout.keySize, this.gameplayLayout.keySize);
+        }
+        
+        // Update hold bar position if it exists
+        if (note.isHold && note.holdBar) {
+          note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
+        }
+      }
+    });
   }
 
   /**
