@@ -56,7 +56,8 @@ export class PauseMenu {
     if (this.music && this.music.isPlaying) {
       this.music.pause();
     }
-    this.scene.scene.pause(this.scene.scene.key);
+    // Don't pause the scene itself - we need input to work for the pause menu buttons
+    // Instead, the game update logic should check isPaused flag
     
     // Create pause menu overlay
     this.createPauseMenu();
@@ -72,7 +73,7 @@ export class PauseMenu {
     if (this.music && this.music.isPaused) {
       this.music.resume();
     }
-    this.scene.scene.resume(this.scene.scene.key);
+    // Scene was never paused, so no need to resume
     
     // Remove pause menu
     if (this.pauseMenu) {
@@ -112,10 +113,20 @@ export class PauseMenu {
       color: "#ffffff",
       backgroundColor: "#00aa00",
       padding: { x: 20, y: 10 }
-    }).setOrigin(0.5).setInteractive();
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     
     resumeButton.on("pointerdown", () => {
       this.resumeGame();
+    });
+    
+    resumeButton.on("pointerover", () => {
+      resumeButton.setBackgroundColor("#00cc00");
+      resumeButton.setScale(1.05);
+    });
+    
+    resumeButton.on("pointerout", () => {
+      resumeButton.setBackgroundColor("#00aa00");
+      resumeButton.setScale(1.0);
     });
     
     // Quit button
@@ -124,15 +135,36 @@ export class PauseMenu {
       color: "#ffffff",
       backgroundColor: "#aa0000",
       padding: { x: 20, y: 10 }
-    }).setOrigin(0.5).setInteractive();
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     
     quitButton.on("pointerdown", () => {
+      // Clean up pause menu first
+      if (this.pauseMenu) {
+        if (this.pauseMenu.overlay) this.pauseMenu.overlay.destroy();
+        if (this.pauseMenu.title) this.pauseMenu.title.destroy();
+        if (this.pauseMenu.resumeButton) this.pauseMenu.resumeButton.destroy();
+        if (this.pauseMenu.quitButton) this.pauseMenu.quitButton.destroy();
+        this.pauseMenu = null;
+      }
+      
+      this.isPaused = false;
+      
       if (this.music) {
         this.music.stop();
       }
       if (this.onQuit) {
         this.onQuit();
       }
+    });
+    
+    quitButton.on("pointerover", () => {
+      quitButton.setBackgroundColor("#cc0000");
+      quitButton.setScale(1.05);
+    });
+    
+    quitButton.on("pointerout", () => {
+      quitButton.setBackgroundColor("#aa0000");
+      quitButton.setScale(1.0);
     });
     
     // Store references

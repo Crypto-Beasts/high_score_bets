@@ -439,6 +439,24 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // Static key visuals for feedback - Use gameplay layout sizing
+    // Clean up any existing key visuals first (in case scene is being recreated)
+    if (this.keyVisuals) {
+      Object.keys(this.keyVisuals).forEach(key => {
+        if (this.keyVisuals[key]) {
+          this.tweens.killTweensOf(this.keyVisuals[key]);
+          this.keyVisuals[key].destroy();
+        }
+      });
+    }
+    if (this.keyGlows) {
+      Object.keys(this.keyGlows).forEach(key => {
+        if (this.keyGlows[key]) {
+          this.tweens.killTweensOf(this.keyGlows[key]);
+          this.keyGlows[key].destroy();
+        }
+      });
+    }
+    
     this.keyVisuals = {};
     this.keyGlows = {}; // Store glow effects for each key
     const keyVisualSize = layout.keySize; // Use consistent key size from layout
@@ -447,6 +465,11 @@ export default class GameScene extends Phaser.Scene {
       const keyVisual = this.add.image(this.keyLanes[key].x, keyVisualY, this.keyLanes[key].sprite);
       keyVisual.setDisplaySize(keyVisualSize, keyVisualSize);
       keyVisual.setOrigin(0.5, 0.5);
+      // Explicitly set scale to 1.0 to ensure keys start at normal size
+      // Also kill any tweens that might be lingering
+      this.tweens.killTweensOf(keyVisual);
+      keyVisual.setScale(1.0, 1.0);
+      keyVisual.clearTint(); // Ensure no tint from previous state
       this.keyVisuals[key] = keyVisual;
       
       // Create glow effect (circle behind key)
@@ -454,6 +477,9 @@ export default class GameScene extends Phaser.Scene {
       glow.setBlendMode(Phaser.BlendModes.ADD);
       glow.setDepth(keyVisual.depth - 1);
       glow.setVisible(false);
+      // Explicitly set glow scale to 1.0 and kill any tweens
+      this.tweens.killTweensOf(glow);
+      glow.setScale(1.0, 1.0);
       this.keyGlows[key] = glow;
     }
     
@@ -996,6 +1022,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   protected handlePlayerInput(event: KeyboardEvent): void {
+    // Don't process game input when paused (ESC key is handled separately)
+    if (this.isPaused) {
+      return;
+    }
+    
     if (this.inputHandler) {
       this.inputHandler.handlePlayerInput(event);
     }
