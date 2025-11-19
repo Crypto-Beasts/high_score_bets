@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import { DIFFICULTY_LEVELS, getDifficultyConfig, adjustSongDataForDifficulty, DifficultyLevel } from "../../utils/game/difficultyManager";
 import { getSongById, getAllSongs, Song } from "../../config/songs";
 import { validateSongData, audioExists, jsonExists, showError, logError, getFallbackSong, NoteData } from "../../utils/data/errorHandler";
-import { createNotePool, createHoldNotePool, ObjectPool } from "../../utils/game/objectPool";
 import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
 import { 
   getAudioOffset, 
@@ -14,45 +13,21 @@ import {
   BPMChange
 } from "../../utils/audio/audioSync";
 import { getThemeColors, ThemeColors } from "../../utils/ui/colorThemes";
-import { checkAchievements, getAchievement } from "../../utils/game/achievements";
+import { NoteManager, FallingNote, KeyLane, GameplayLayout } from "../../utils/game/noteManager";
+import { HoldNoteSystem } from "../../utils/game/holdNoteSystem";
+import { ScoreManager } from "../../utils/game/scoreManager";
+import { InputHandler } from "../../utils/game/inputHandler";
+import { VisualEffects } from "../../utils/game/visualEffects";
+import { GameUpdateHandler } from "../../utils/game/gameUpdateHandler";
+import { GameplayLayoutManager } from "../../utils/ui/gameplayLayout";
+import { PauseMenu } from "../../utils/ui/pauseMenu";
+import { checkAchievements } from "../../utils/game/achievements";
+import { getAchievement } from "../../utils/game/achievements";
 
 interface GameSceneData {
   song?: string;
   difficulty?: string;
   [key: string]: any;
-}
-
-interface KeyLane {
-  x: number;
-  sprite: string;
-}
-
-interface GameplayLayout {
-  lanes: Record<string, KeyLane>;
-  gameplayStartX: number;
-  gameplayEndX: number;
-  gameplayWidth: number;
-  keySize: number;
-  spacing: number;
-}
-
-interface FallingNote extends Phaser.GameObjects.Image {
-  keyType: string;
-  isHold: boolean;
-  held?: boolean;
-  holdStartTime?: number | null;
-  holdStartAudioTime?: number;
-  holdDuration?: number;
-  missTriggered?: boolean;
-  holdBar?: Phaser.GameObjects.Rectangle;
-  spawnTime?: number;
-  trail?: any; // Phaser.GameObjects.Particles.ParticleEmitterManager
-  keySpriteHidden?: boolean;
-  keyRemoved?: boolean;
-  pooled?: boolean;
-  originalColor?: number;
-  holdBarStartY?: number;
-  requiredHoldEndTime?: number;
 }
 
 export default class GameScene extends Phaser.Scene {
@@ -91,26 +66,85 @@ export default class GameScene extends Phaser.Scene {
   protected keyVisuals: Record<string, Phaser.GameObjects.Image> = {};
   protected keyGlows: Record<string, Phaser.GameObjects.Arc> = {};
   
-  // Game state
-  protected score: number = 0;
-  protected longestStreak: number = 0;
-  protected currentStreak: number = 0;
-  protected totalNotes: number = 0;
-  protected notesHit: number = 0;
-  protected failed: boolean = false;
-  protected perfectCount: number = 0;
-  protected goodCount: number = 0;
-  protected missCount: number = 0;
-  protected comboHistory: number[] = [];
-  protected currentComboStart: number | null = null;
-  protected comboMasterUnlocked: boolean = false;
-  protected lastMilestone: number = 0;
+  // Game state (backward compatibility - access via scoreManager)
+  protected get score(): number {
+    return this.scoreManager?.score || 0;
+  }
   
-  // Notes and pools
-  protected fallingKeys: FallingNote[] = [];
-  protected keysPressed: Record<string, boolean> = {};
-  protected notePools: Record<string, ObjectPool<Phaser.GameObjects.Image>> = {};
-  protected holdNotePool?: ObjectPool<Phaser.GameObjects.Rectangle>;
+  protected get longestStreak(): number {
+    return this.scoreManager?.longestStreak || 0;
+  }
+  
+  protected get currentStreak(): number {
+    return this.scoreManager?.currentStreak || 0;
+  }
+  
+  protected get totalNotes(): number {
+    return this.noteManager?.totalNotes || 0;
+  }
+  
+  protected get notesHit(): number {
+    return this.scoreManager?.notesHit || 0;
+  }
+  
+  protected get failed(): boolean {
+    return this.scoreManager?.failed || false;
+  }
+  
+  protected get perfectCount(): number {
+    return this.scoreManager?.perfectCount || 0;
+  }
+  
+  protected get goodCount(): number {
+    return this.scoreManager?.goodCount || 0;
+  }
+  
+  protected get missCount(): number {
+    return this.scoreManager?.missCount || 0;
+  }
+  
+  protected get comboHistory(): number[] {
+    return this.scoreManager?.comboHistory || [];
+  }
+  
+  protected get currentComboStart(): number | null {
+    return this.scoreManager?.currentComboStart || null;
+  }
+  
+  protected get comboMasterUnlocked(): boolean {
+    return this.scoreManager?.comboMasterUnlocked || false;
+  }
+  
+  protected get lastMilestone(): number {
+    return this.scoreManager?.lastMilestone || 0;
+  }
+  
+  // Managers (protected for MultiplayerGameScene access)
+  protected noteManager?: NoteManager;
+  protected holdNoteSystem?: HoldNoteSystem;
+  protected scoreManager?: ScoreManager;
+  protected inputHandler?: InputHandler;
+  protected visualEffects?: VisualEffects;
+  protected gameUpdateHandler?: GameUpdateHandler;
+  protected gameplayLayoutManager?: GameplayLayoutManager;
+  protected pauseMenuManager?: PauseMenu;
+  
+  // Backward compatibility - expose manager properties
+  protected get fallingKeys(): FallingNote[] {
+    return this.noteManager?.fallingKeys || [];
+  }
+  
+  protected get keysPressed(): Record<string, boolean> {
+    return this.inputHandler?.keysPressed || {};
+  }
+  
+  protected get notePools() {
+    return this.noteManager?.notePools || {};
+  }
+  
+  protected get holdNotePool() {
+    return this.noteManager?.holdNotePool;
+  }
   
   // Audio
   protected music?: Phaser.Sound.BaseSound;
@@ -121,17 +155,18 @@ export default class GameScene extends Phaser.Scene {
   protected screenHeight: number = 0;
   protected cullMargin: number = 0;
   
-  // Pause state
-  protected isPaused: boolean = false;
-  protected pauseMenu: {
-    overlay?: Phaser.GameObjects.Rectangle;
-    title?: Phaser.GameObjects.Text;
-    resumeButton?: Phaser.GameObjects.Text;
-    resumeText?: Phaser.GameObjects.Text;
-    quitButton?: Phaser.GameObjects.Text;
-    quitText?: Phaser.GameObjects.Text;
-  } | null = null;
-  protected lastScore: number = 0;
+  // Pause state (backward compatibility)
+  protected get isPaused(): boolean {
+    return this.pauseMenuManager?.isPaused || false;
+  }
+  
+  protected get pauseMenu() {
+    return this.pauseMenuManager?.pauseMenu || null;
+  }
+  
+  protected get lastScore(): number {
+    return this.scoreManager?.lastScore || 0;
+  }
 
   constructor(config?: Phaser.Types.Scenes.SettingsConfig) {
     // Accept config parameter to allow child classes to override the key
@@ -294,46 +329,50 @@ export default class GameScene extends Phaser.Scene {
     this.dimOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.5);
     this.dimOverlay.setDepth(0); // Behind everything
     
-    // Listen for resize events - use both scene scale and game scale
-    this.scale.on('resize', this.handleResize, this);
-    // Also listen to game-level resize for better compatibility
-    if (this.game.scale) {
-      this.game.scale.on('resize', this.handleResize, this);
-    }
+    // Initialize GameplayLayoutManager
+    this.gameplayLayoutManager = new GameplayLayoutManager({
+      scene: this,
+      themeColors: this.themeColors,
+      onLayoutChanged: (layout) => {
+        this.keyLanes = layout.lanes;
+        this.gameplayLayout = layout;
+        if (this.noteManager) {
+          this.noteManager.updateLayout(layout);
+        }
+      },
+      onJudgmentYChanged: (judgmentY) => {
+        this.JUDGMENT_Y = judgmentY;
+        if (this.gameUpdateHandler) {
+          const FALL_DISTANCE = judgmentY - 0;
+          const pixelsPerSecond = FALL_DISTANCE / this.FALL_TIME;
+          this.PIXELS_PER_SECOND = pixelsPerSecond;
+          this.gameUpdateHandler.updateJudgmentY(judgmentY, pixelsPerSecond);
+        }
+        if (this.inputHandler) {
+          this.inputHandler.updateJudgmentY(judgmentY);
+        }
+      },
+      onMarginsChanged: (perfectMargin, goodMargin) => {
+        this.perfectMargin = perfectMargin;
+        this.goodMargin = goodMargin;
+        if (this.inputHandler) {
+          this.inputHandler.updateMargins(perfectMargin, goodMargin);
+        }
+        if (this.gameUpdateHandler) {
+          this.gameUpdateHandler.updateMargins(perfectMargin, goodMargin);
+        }
+      }
+    });
 
     // Calculate centered gameplay layout (once, reuse throughout)
-    const layout = this.calculateGameplayLayout(width, height);
+    const layout = this.gameplayLayoutManager.calculateGameplayLayout(width, height);
     this.keyLanes = layout.lanes;
-    this.gameplayLayout = layout; // Store for resize updates
+    this.gameplayLayout = layout;
 
     // Judgment Line - Use gameplay area boundaries with theme color
-    this.judgmentLine = this.add.graphics();
-    this.judgmentLine.lineStyle(4, this.themeColors.judgmentLine, 1);
-    this.judgmentLine.beginPath();
-    const marginX = Math.max(50, layout.gameplayStartX);
-    const endX = Math.min(width - 50, layout.gameplayEndX);
-    this.judgmentLine.moveTo(marginX, JUDGMENT_Y);
-    this.judgmentLine.lineTo(endX, JUDGMENT_Y);
-    this.judgmentLine.strokePath();
+    this.judgmentLine = this.gameplayLayoutManager.createJudgmentLine();
 
-    // Score & Streak
-    this.score = 0;
-    this.longestStreak = 0;
-    this.currentStreak = 0;
-    this.totalNotes = 0;
-    this.notesHit = 0;
-    this.failed = false;
-    
-    // Detailed statistics
-    this.perfectCount = 0;
-    this.goodCount = 0;
-    this.missCount = 0;
-    this.comboHistory = []; // Track all combos for average calculation
-    this.currentComboStart = null;
-    
-    // Achievement tracking
-    this.comboMasterUnlocked = false; // Track if combo master was already unlocked this session
-
+    // Initialize ScoreManager
     // Responsive text sizing
     const scoreFontSize = getResponsiveFontSize(24, width, 18, 30);
     const feedbackFontSize = getResponsiveFontSize(32, width, 24, 40);
@@ -362,9 +401,6 @@ export default class GameScene extends Phaser.Scene {
       fontFamily: "'Orbitron', 'Arial', sans-serif"
     }).setAlpha(0);
 
-    // Track last milestone reached to avoid duplicate effects
-    this.lastMilestone = 0;
-
     // Feedback Text (for "Perfect", "Good", "Miss")
     this.feedbackText = this.add.text(width / 2, height / 2, "", {
       fontSize: feedbackFontSize,
@@ -372,18 +408,35 @@ export default class GameScene extends Phaser.Scene {
       fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0);
 
-    // Layout already calculated above, reuse it
-    this.fallingKeys = [];
-    this.keysPressed = {}; // Track which keys are currently pressed
+    this.scoreManager = new ScoreManager({
+      scene: this,
+      themeColors: this.themeColors,
+      scoreText: this.scoreText,
+      comboText: this.comboText,
+      comboMultiplierText: this.comboMultiplierText,
+      currentSongId: this.currentSongId,
+      currentDifficulty: this.currentDifficulty,
+      onAchievementUnlocked: (achievementId) => {
+        this.scoreManager?.showAchievementNotification(achievementId);
+      }
+    });
 
-    // Object pools for performance optimization
-    this.notePools = {};
-    this.holdNotePool = createHoldNotePool(this, 20);
-    
-    // Create pools for each key type
-    for (let key in this.keyLanes) {
-      this.notePools[key] = createNotePool(this, this.keyLanes[key].sprite, 15);
-    }
+    // Initialize HoldNoteSystem
+    this.holdNoteSystem = new HoldNoteSystem({
+      scene: this,
+      themeColors: this.themeColors,
+      getCurrentAudioTime: () => this.getCurrentAudioTime()
+    });
+
+    // Initialize NoteManager
+    this.noteManager = new NoteManager({
+      scene: this,
+      keyLanes: this.keyLanes,
+      gameplayLayout: layout,
+      themeColors: this.themeColors,
+      judgmentY: this.JUDGMENT_Y,
+      calculateTailHeight: (holdDuration) => this.holdNoteSystem!.calculateTailHeight(holdDuration)
+    });
 
     // Static key visuals for feedback - Use gameplay layout sizing
     this.keyVisuals = {};
@@ -404,9 +457,68 @@ export default class GameScene extends Phaser.Scene {
       this.keyGlows[key] = glow;
     }
     
+    // Initialize VisualEffects
+    this.visualEffects = new VisualEffects({
+      scene: this,
+      keyVisuals: this.keyVisuals,
+      keyGlows: this.keyGlows,
+      themeColors: this.themeColors,
+      judgmentY: this.JUDGMENT_Y,
+      keyLanes: this.keyLanes,
+      fallingKeys: this.noteManager.fallingKeys
+    });
+
+    // Initialize InputHandler
+    this.inputHandler = new InputHandler({
+      scene: this,
+      noteManager: this.noteManager,
+      holdNoteSystem: this.holdNoteSystem,
+      scoreManager: this.scoreManager,
+      visualEffects: this.visualEffects,
+      keyVisuals: this.keyVisuals,
+      keyGlows: this.keyGlows,
+      keyLanes: this.keyLanes,
+      themeColors: this.themeColors,
+      judgmentY: this.JUDGMENT_Y,
+      perfectMargin: this.perfectMargin,
+      goodMargin: this.goodMargin,
+      getCurrentAudioTime: () => this.getCurrentAudioTime(),
+      getCurrentTime: () => this.time.now
+    });
+    
     // Performance optimization: Cache values to reduce lookups
     this.screenHeight = height;
     this.cullMargin = getResponsiveSpacing(100, height); // Responsive cull margin
+
+    // Initialize GameUpdateHandler
+    this.gameUpdateHandler = new GameUpdateHandler({
+      scene: this,
+      noteManager: this.noteManager,
+      holdNoteSystem: this.holdNoteSystem,
+      scoreManager: this.scoreManager,
+      inputHandler: this.inputHandler,
+      visualEffects: this.visualEffects,
+      themeColors: this.themeColors,
+      songData: this.songData,
+      music: this.music,
+      audioStartTime: this.audioStartTime,
+      audioOffset: this.audioOffset,
+      judgmentY: this.JUDGMENT_Y,
+      pixelsPerSecond: this.PIXELS_PER_SECOND,
+      perfectMargin: this.perfectMargin,
+      goodMargin: this.goodMargin,
+      fallTime: this.FALL_TIME,
+      currentSongId: this.currentSongId,
+      currentDifficulty: this.currentDifficulty,
+      screenHeight: this.screenHeight,
+      cullMargin: this.cullMargin,
+      getCurrentTime: () => this.time.now,
+      getCurrentAudioTime: () => this.getCurrentAudioTime(),
+      onGameEnd: (data) => {
+        this.scene.start("DebriefScene", data);
+      }
+    });
+    this.gameUpdateHandler.currentNoteIndex = 0;
 
     // Music - use the selected song
     this.music = this.sound.add(songId);
@@ -440,6 +552,19 @@ export default class GameScene extends Phaser.Scene {
             // Record actual audio start time for accurate timing
             this.audioStartTime = Date.now();
             this.musicStarted = true;
+            
+            // Update pause menu with music state
+            if (this.pauseMenuManager) {
+              this.pauseMenuManager.updateMusic(this.music, this.musicStarted);
+            }
+            
+            // Update GameUpdateHandler with audio start time
+            if (this.gameUpdateHandler) {
+              this.gameUpdateHandler.updateMusic(this.music);
+              this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
+              this.gameUpdateHandler.currentNoteIndex = 0;
+            }
+            
             console.log(`[GameScene] Music started. First note at ${firstNoteTime}s, ${this.songData.length} total notes`);
             console.log(`[GameScene] Audio offset: ${this.audioOffset}ms, Variable BPM: ${this.bpmChanges.length > 0 ? 'Yes' : 'No'}`);
           }
@@ -448,6 +573,19 @@ export default class GameScene extends Phaser.Scene {
           // Fallback: use scene time as start time
           this.audioStartTime = Date.now();
           this.musicStarted = true;
+          
+          // Update pause menu with music state
+          if (this.pauseMenuManager) {
+            this.pauseMenuManager.updateMusic(this.music, this.musicStarted);
+          }
+          
+          // Update GameUpdateHandler with audio start time (fallback)
+          if (this.gameUpdateHandler) {
+            this.gameUpdateHandler.updateMusic(this.music);
+            this.gameUpdateHandler.updateAudioStartTime(this.audioStartTime);
+            this.gameUpdateHandler.currentNoteIndex = 0;
+          }
+          
           console.log(`[GameScene] Using fallback audio start time`);
         }
       };
@@ -464,426 +602,68 @@ export default class GameScene extends Phaser.Scene {
     // Start the audio ready check
     startMusicWhenReady();
 
+    // Initialize PauseMenu
+    this.pauseMenuManager = new PauseMenu({
+      scene: this,
+      music: this.music,
+      musicStarted: this.musicStarted,
+      onResume: () => {
+        // Resume callback (if needed)
+      },
+      onQuit: () => {
+        this.scene.start("MainMenuScene");
+      }
+    });
+
     // Keyboard input
     this.input.keyboard.on("keydown", this.handlePlayerInput, this);
     this.input.keyboard.on("keyup", this.handleKeyRelease, this);
     
-    // Pause state
-    this.isPaused = false;
-    this.pauseMenu = null;
-    
     // Keyboard shortcut: Esc to pause/resume
     this.input.keyboard.on('keydown-ESC', () => {
-      if (this.isPaused) {
+      if (this.pauseMenuManager?.isPaused) {
         this.resumeGame();
       } else {
         this.pauseGame();
       }
     });
+
+    // Listen for resize events - use both scene scale and game scale
+    this.scale.on('resize', this.handleResize, this);
+    // Also listen to game-level resize for better compatibility
+    if (this.game.scale) {
+      this.game.scale.on('resize', this.handleResize, this);
+    }
   }
   
   pauseGame(): void {
-    if (this.isPaused || !this.musicStarted) return;
-    
-    this.isPaused = true;
-    if (this.music && this.music.isPlaying) {
-      this.music.pause();
+    if (this.pauseMenuManager) {
+      this.pauseMenuManager.updateMusic(this.music, this.musicStarted);
+      this.pauseMenuManager.pauseGame();
     }
-    this.scene.pause();
-    
-    // Create pause menu overlay
-    this.createPauseMenu();
   }
   
   resumeGame(): void {
-    if (!this.isPaused) return;
-    
-    this.isPaused = false;
-    if (this.music && this.music.isPaused) {
-      this.music.resume();
-    }
-    this.scene.resume();
-    
-    // Remove pause menu
-    if (this.pauseMenu) {
-      if (this.pauseMenu.overlay) this.pauseMenu.overlay.destroy();
-      if (this.pauseMenu.title) this.pauseMenu.title.destroy();
-      if (this.pauseMenu.resumeButton) this.pauseMenu.resumeButton.destroy();
-      if (this.pauseMenu.quitButton) this.pauseMenu.quitButton.destroy();
-      this.pauseMenu = null;
+    if (this.pauseMenuManager) {
+      this.pauseMenuManager.resumeGame();
     }
   }
   
   createPauseMenu(): void {
-    const { width, height } = this.scale;
-    
-    // Dark overlay
-    const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
-    
-    // Pause title
-    const titleSize = getResponsiveFontSize(48, width, 36, 60);
-    const title = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), "PAUSED", {
-      fontSize: titleSize,
-      color: "#ffffff",
-      fontStyle: "bold"
-    }).setOrigin(0.5);
-    
-    // Resume button
-    const buttonSize = getResponsiveFontSize(24, width, 18, 30);
-    const resumeButton = this.add.text(width / 2, height / 2, "Resume (ESC)", {
-      fontSize: buttonSize,
-      color: "#ffffff",
-      backgroundColor: "#00aa00",
-      padding: { x: 20, y: 10 }
-    }).setOrigin(0.5).setInteractive();
-    
-    resumeButton.on("pointerdown", () => {
-      this.resumeGame();
-    });
-    
-    // Quit button
-    const quitButton = this.add.text(width / 2, height / 2 + getResponsiveSpacing(60, height), "Quit to Menu", {
-      fontSize: buttonSize,
-      color: "#ffffff",
-      backgroundColor: "#aa0000",
-      padding: { x: 20, y: 10 }
-    }).setOrigin(0.5).setInteractive();
-    
-    quitButton.on("pointerdown", () => {
-      if (this.music) {
-        this.music.stop();
-      }
-      this.scene.start("MainMenuScene");
-    });
-    
-    // Store references
-    this.pauseMenu = {
-      overlay,
-      title,
-      resumeButton,
-      quitButton
-    };
-  }
-
-  handleKeyRelease(event: KeyboardEvent): void {
-    const keyReleased = event.key.toUpperCase();
-    
-    // Mark key as released
-    this.keysPressed[keyReleased] = false;
-    
-    const perfectMargin = this.perfectMargin || 15;
-    const goodMargin = this.goodMargin || 40;
-
-    if (this.keyLanes[keyReleased]) {
-      let handledHoldNote = false;
-      
-      // Find hold notes that are currently being held for this key
-      for (let i = 0; i < this.fallingKeys.length; i++) {
-        const note = this.fallingKeys[i];
-        
-        if (note.keyType === keyReleased && note.isHold && note.held && note.holdStartTime) {
-          handledHoldNote = true;
-          // Use audio time for accurate hold duration calculation
-          const currentAudioTime = this.getCurrentAudioTime();
-          const holdStartAudioTime = note.holdStartAudioTime;
-          const holdElapsed = currentAudioTime - holdStartAudioTime;
-          const requiredDuration = note.holdDuration || 0;
-          const expectedEndTime = holdStartAudioTime + requiredDuration;
-          
-          // Check if hold was completed successfully using audio time
-          const durationTolerance = 0.1; // 100ms tolerance
-          const distance = Math.abs(note.y - this.JUDGMENT_Y);
-          
-          // Determine completion quality based on audio time
-          let feedbackText = "Hold Complete!";
-          let feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-          let score = 30; // Hold notes worth more points
-          
-          if (currentAudioTime >= expectedEndTime - durationTolerance) {
-            // Successfully completed - check timing precision
-            if (distance < perfectMargin && currentAudioTime >= expectedEndTime) {
-              feedbackText = "Perfect Hold!";
-              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-              score = 40;
-            } else if (currentAudioTime >= expectedEndTime * 0.7) {
-              // At least 70% completion
-              feedbackText = "Hold Complete!";
-              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-              score = 30;
-            } else {
-              feedbackText = "Hold Too Short";
-              feedbackColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-              score = 20;
-            }
-            
-            
-            // Apply combo multiplier to score
-            const comboMultiplier = this.getComboMultiplier(this.currentStreak);
-            const baseScore = score;
-            const multipliedScore = Math.floor(baseScore * comboMultiplier);
-            
-            this.score += multipliedScore;
-            this.notesHit++;
-            this.currentStreak++;
-            if (this.currentStreak > this.longestStreak) {
-              this.longestStreak = this.currentStreak;
-              
-              // Check for Combo Master achievement (100x combo) during gameplay
-              if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
-                const totalSongs = getAllSongs().length;
-                const gameData = {
-                  accuracy: 0, // Not needed for combo check
-                  grade: '',
-                  difficulty: this.currentDifficulty,
-                  longestStreak: this.longestStreak,
-                  failed: false,
-                  song: this.currentSongId
-                };
-                const newlyUnlocked = checkAchievements(gameData, totalSongs);
-                if (newlyUnlocked.includes('combo_master')) {
-                  this.comboMasterUnlocked = true;
-                  this.showAchievementNotification('combo_master');
-                }
-              }
-            }
-            
-            // Update combo display
-            this.updateComboDisplay(this.currentStreak);
-            
-            this.updateScore(this.score);
-            
-            // Stop hold pulse (clean up any tweens, but keep key in pressed state)
-            this.stopHoldPulse(keyReleased);
-            
-            // FIX: Don't reset key visual here - it will be reset when key is actually released
-            // The key visual should stay pressed as long as the user is holding the key
-            // Since we're in handleKeyRelease, the key IS being released, so reset it below
-            
-            // Clean up hold bar
-            if (note.holdBar) {
-              note.holdBar.setVisible(false);
-              this.holdNotePool.release(note.holdBar);
-              note.holdBar = null;
-            }
-            
-            // Clean up - return to pool instead of destroying
-            this.releaseNote(note);
-            this.fallingKeys.splice(i, 1);
-            
-            // Now reset the key visual since the key is being released
-            const keyVisual = this.keyVisuals[keyReleased];
-            const glow = this.keyGlows[keyReleased];
-            if (keyVisual) {
-              this.tweens.killTweensOf(keyVisual);
-              keyVisual.setScale(1.0, 1.0);
-              keyVisual.clearTint();
-            }
-            if (glow) {
-              this.tweens.killTweensOf(glow);
-              glow.setVisible(false);
-              glow.setAlpha(0);
-              glow.setScale(1);
-            }
-            
-            break;
-          } else {
-            // Hold was released too early (before 70% completion)
-            const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-            note.held = false;
-            note.holdStartTime = null;
-            note.holdStartAudioTime = null;
-            
-            // Revert tail to normal color - it will continue falling
-            if (note.holdBar) {
-              const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-              note.holdBar.setFillStyle(tailColor.color, 0.7); // 70% opacity, normal color
-            }
-            
-            // Key sprite stays hidden - it doesn't reappear
-            note.setVisible(false);
-            note.keySpriteHidden = true; // Ensure it stays hidden
-            if (note.trail) {
-              note.trail.setVisible(false);
-            }
-            
-            // Reset key state (no animation)
-            this.stopHoldPulse(keyReleased);
-            // Reset key visual immediately without animation
-            const keyVisual = this.keyVisuals[keyReleased];
-            const glow = this.keyGlows[keyReleased];
-            if (keyVisual) {
-              this.tweens.killTweensOf(keyVisual);
-              keyVisual.setScale(1.0, 1.0);
-              keyVisual.clearTint();
-            }
-            if (glow) {
-              this.tweens.killTweensOf(glow);
-              glow.setVisible(false);
-              glow.setAlpha(0);
-              glow.setScale(1);
-            }
-
-            this.currentStreak = 0;
-            this.lastMilestone = 0;
-            this.failed = true;
-            
-            // Update combo display (will hide it)
-            this.updateComboDisplay(0);
-            
-            // DON'T remove from fallingKeys - let it continue falling until it goes off screen
-            // The note will be cleaned up when it passes off-screen in the update loop
-            break;
-          }
-        }
-      }
-      
-      // If it's not a hold note, check if key is in pressed state and return it to normal
-      if (!handledHoldNote) {
-        const keyVisual = this.keyVisuals[keyReleased];
-        if (keyVisual) {
-          const currentScale = keyVisual.scaleX || 1.0;
-          // If key is in pressed state (scaled down), animate it back to normal
-          if (currentScale < 1.0) {
-            // Check if this key is currently being held for a hold note
-            let isKeyCurrentlyHeld = false;
-            for (let i = 0; i < this.fallingKeys.length; i++) {
-              const note = this.fallingKeys[i];
-              if (note.keyType === keyReleased && note.isHold && note.held && note.holdStartTime) {
-                isKeyCurrentlyHeld = true;
-                break;
-              }
-            }
-            
-            // Only release if it's not being held for a hold note
-            if (!isKeyCurrentlyHeld) {
-              // Reset key visual immediately without animation
-              this.tweens.killTweensOf(keyVisual);
-              keyVisual.setScale(1.0, 1.0);
-              keyVisual.clearTint();
-              const glow = this.keyGlows[keyReleased];
-              if (glow) {
-                this.tweens.killTweensOf(glow);
-                glow.setVisible(false);
-                glow.setAlpha(0);
-                glow.setScale(1);
-              }
-            }
-          }
-        }
-      }
+    if (this.pauseMenuManager) {
+      this.pauseMenuManager.createPauseMenu();
     }
   }
 
-  spawnKey(key: string, isHoldNote: boolean, duration: number = 0): void {
-    if (!key) {
-      return; // Skip notes with null key
+  protected handleKeyRelease(event: KeyboardEvent): void {
+    if (this.inputHandler) {
+      this.inputHandler.handleKeyRelease(event);
     }
+  }
 
-    key = key.toUpperCase(); 
-    const lane = this.keyLanes[key];
-
-    if (!lane) {
-      console.warn(`[GameScene] Invalid key: ${key}`);
-      return; // Skip invalid keys
-    }
-
-    // Increment total notes when spawning
-    this.totalNotes++;
-
-    // Use gameplay layout for consistent note sizing
-    const { width, height } = this.scale;
-    const noteSize = this.gameplayLayout ? this.gameplayLayout.keySize : this.calculateGameplayLayout(width, height).keySize;
-    const holdBarWidth = getResponsiveSpacing(20, width);
-    const holdBarHeight = getResponsiveSpacing(100, height);
-
-    if (isHoldNote) {
-      // Hold notes: key sprite at top + tail bar connecting to judgment line
-      const keySprite = this.notePools[key].acquire() as FallingNote;
-      keySprite.setPosition(lane.x, 0);
-      keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
-      keySprite.setOrigin(0.5, 0.5);
-      keySprite.setDepth(10);
-      keySprite.setVisible(true);
-      keySprite.setActive(true);
-      
-      // Store note properties
-      keySprite.keyType = key;
-      keySprite.isHold = true;
-      keySprite.held = false;
-      keySprite.holdDuration = duration;
-      keySprite.holdStartTime = null;
-      keySprite.originalColor = this.themeColors.note;
-      keySprite.pooled = true; // Mark as pooled for cleanup
-      
-      // Apply theme color tint to note sprite
-      keySprite.setTint(this.themeColors.note);
-      
-      // Create trail effect (same as regular notes)
-      keySprite.trail = this.add.particles(lane.x, 0, 'noteTrail', {
-        speed: { min: 20, max: 40 },
-        scale: { start: 0.3, end: 0 },
-        alpha: { start: 0.8, end: 0 },
-        lifespan: 300,
-        frequency: 50,
-        tint: this.themeColors.trail
-      });
-      keySprite.trail.setDepth(9); // Just behind the note
-      
-      // Create hold bar tail - extends UPWARD from key sprite
-      // IMPORTANT: Tail must be behind the key sprite (like Rock Band - key in front, line behind)
-      // Tail height is based on hold duration - longer holds = longer tails
-      const holdBar = this.holdNotePool.acquire();
-      const holdBarWidth = getResponsiveSpacing(15, width);
-      const tailHeight = this.calculateTailHeight(duration);
-      
-      // Position tail so it extends upward from the key sprite
-      holdBar.setPosition(lane.x, 0); // Position at key sprite (spawn position)
-      holdBar.setSize(holdBarWidth, tailHeight);
-      const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-      tailColor.alpha = 0.7;
-      holdBar.setFillStyle(tailColor.color, tailColor.alpha);
-      holdBar.setOrigin(0.5, 1); // Anchor at BOTTOM - extends UPWARD
-      holdBar.setDepth(3);
-      holdBar.setVisible(true);
-      holdBar.setActive(true);
-      
-      keySprite.holdBar = holdBar;
-      keySprite.holdBarStartY = this.JUDGMENT_Y;
-      
-      this.fallingKeys.push(keySprite);
-    } else {
-      // Use object pool for regular notes
-      const keySprite = this.notePools[key].acquire() as FallingNote;
-      keySprite.setPosition(lane.x, 0);
-      keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
-      keySprite.setOrigin(0.5, 0.5);
-      keySprite.setDepth(10);
-      keySprite.setVisible(true);
-      keySprite.setActive(true);
-      
-      // Store note properties
-      keySprite.keyType = key;
-      keySprite.isHold = false;
-      keySprite.held = false;
-      keySprite.pooled = true; // Mark as pooled for cleanup
-      
-      // Create trail effect for regular notes with theme colors
-      // Note: Particle emitters don't have a follow() method in Phaser 3
-      // We'll update the emitter position manually in the update loop
-      keySprite.trail = this.add.particles(lane.x, 0, 'noteTrail', {
-        speed: { min: 20, max: 40 },
-        scale: { start: 0.3, end: 0 },
-        alpha: { start: 0.8, end: 0 },
-        lifespan: 300,
-        frequency: 50,
-        tint: this.themeColors.trail
-      });
-      keySprite.trail.setDepth(9); // Just behind the note
-      
-      // Apply theme color tint to note sprite
-      keySprite.setTint(this.themeColors.note);
-      
-      this.fallingKeys.push(keySprite);
+  protected spawnKey(key: string, isHoldNote: boolean, duration: number = 0): void {
+    if (this.noteManager) {
+      this.noteManager.spawnKey(key, isHoldNote, duration);
     }
   }
   
@@ -893,22 +673,18 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} holdDuration - Hold duration in seconds
    * @returns {number} Tail height in pixels
    */
-  calculateTailHeight(holdDuration: number): number {
-    // Use a reasonable maximum tail height and scale accordingly
-    const { height } = this.scale;
-    const MAX_TAIL_HEIGHT = getResponsiveSpacing(200, height); // Maximum tail height
-    const MAX_HOLD_DURATION = 3.0; // Maximum expected hold duration in seconds (cap at 3 seconds)
-    
-    // Scale tail height based on hold duration, capped at maximum
-    const proportion = Math.min(holdDuration / MAX_HOLD_DURATION, 1.0);
-    return MAX_TAIL_HEIGHT * proportion;
+  protected calculateTailHeight(holdDuration: number): number {
+    if (this.holdNoteSystem) {
+      return this.holdNoteSystem.calculateTailHeight(holdDuration);
+    }
+    return 0;
   }
 
   /**
    * Get current audio time in seconds
    * @returns {number} Current audio time
    */
-  getCurrentAudioTime(): number {
+  protected getCurrentAudioTime(): number {
     return getAccurateGameTime(
       this.music,
       this.time.now,
@@ -922,68 +698,18 @@ export default class GameScene extends Phaser.Scene {
    * @param {Object} note - The note object (key sprite)
    * @param {string} key - The key being held
    */
-  transformToHoldBar(note: FallingNote, key: string): void {
-    if (!note || !note.isHold || !note.holdBar) return;
-    
-    // Hide key sprite when pressed - it doesn't reappear
-    note.setVisible(false);
-    note.keySpriteHidden = true; // Flag to prevent culling from making it visible again
-    if (note.trail) {
-      note.trail.setVisible(false);
+  protected transformToHoldBar(note: FallingNote, key: string): void {
+    if (this.holdNoteSystem) {
+      this.holdNoteSystem.transformToHoldBar(note, key);
     }
-    
-    // Store timing info (don't overwrite if already set)
-    if (!note.holdStartTime) {
-      note.holdStartTime = this.time.now;
-    }
-    if (!note.holdStartAudioTime) {
-      note.holdStartAudioTime = this.getCurrentAudioTime();
-      note.requiredHoldEndTime = note.holdStartAudioTime + (note.holdDuration || 0);
-    }
-    
-    // Ensure holdBar is visible and positioned correctly
-    const originalTailHeight = this.calculateTailHeight(note.holdDuration || 0);
-    const holdBarWidth = getResponsiveSpacing(15, this.scale.width);
-    note.holdBar.setSize(holdBarWidth, originalTailHeight);
-    note.holdBar.setOrigin(0.5, 1); // Anchor at bottom - extends upward
-    note.holdBar.setPosition(note.x, note.y); // Position at key sprite
-    note.holdBar.setVisible(true);
-    
-    // Change to active color (glowing green while held)
-    note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
-    
-    // Tail continues falling naturally - update loop will handle cut-off and pulse
   }
-  
+
   /**
    * Release a note back to its pool
    */
-  releaseNote(note: FallingNote): void {
-  
-    // Clean up trail effect if it exists
-    if (note.trail) {
-      note.trail.destroy();
-      note.trail = null;
-    }
-    
-    // Clean up hold bar if it exists (for hold notes)
-    if (note.isHold && note.holdBar) {
-      this.holdNotePool.release(note.holdBar);
-      note.holdBar = null;
-    }
-    
-    // Reset flags before releasing to pool
-    note.keyRemoved = false;
-    note.keySpriteHidden = false;
-    note.missTriggered = false;
-    
-    if (note.pooled) {
-      // Hold notes now use regular note pools (they start as key sprites)
-      // So we always release to note pool, not hold note pool
-      this.notePools[note.keyType]?.release(note);
-    } else {
-      // Fallback for non-pooled notes (shouldn't happen, but safety check)
-      note.destroy();
+  protected releaseNote(note: FallingNote): void {
+    if (this.noteManager) {
+      this.noteManager.releaseNote(note);
     }
   }
 
@@ -993,221 +719,158 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} height - Screen height
    * @returns {object} Layout object with gameplay area, key size, spacing, and lane positions
    */
-  calculateGameplayLayout(width: number, height: number): GameplayLayout {
-    // Define gameplay area constraints
-    const maxGameplayWidth = 800; // Maximum width for gameplay area
-    const minGameplayWidth = 400; // Minimum width for very small screens
-    const gameplayWidthPercent = 0.7; // Use 70% of screen width
-    
-    // Calculate gameplay width (centered, with min/max constraints)
-    let gameplayWidth = Math.min(maxGameplayWidth, width * gameplayWidthPercent);
-    gameplayWidth = Math.max(minGameplayWidth, gameplayWidth);
-    
-    // Center the gameplay area
-    const gameplayStartX = (width - gameplayWidth) / 2;
-    
-    // Key sizing: responsive but with min/max constraints
-    const baseKeySize = 50;
-    const minKeySize = 40;
-    const maxKeySize = 60;
-    const sizeScale = gameplayWidth / maxGameplayWidth;
-    let keySize = baseKeySize * sizeScale;
-    keySize = Math.max(minKeySize, Math.min(maxKeySize, keySize));
-    
-    // Spacing: adaptive with minimum constraint
-    const minSpacing = 80; // Minimum spacing between keys
-    const spacing = Math.max(minSpacing, gameplayWidth / 5);
-    
-    // Calculate lane positions (centered within gameplay area)
-    const lanes = {
-      W: { 
-        x: gameplayStartX + spacing * 2, // Swapped with A
-        sprite: "key_w" 
-      },
-      A: { 
-        x: gameplayStartX + spacing, // Swapped with W
-        sprite: "key_a" 
-      },
-      S: { 
-        x: gameplayStartX + spacing * 3, 
-        sprite: "key_s" 
-      },
-      D: { 
-        x: gameplayStartX + spacing * 4, 
-        sprite: "key_d" 
-      },
-    };
-    
+  protected calculateGameplayLayout(width: number, height: number): GameplayLayout {
+    if (this.gameplayLayoutManager) {
+      return this.gameplayLayoutManager.calculateGameplayLayout(width, height);
+    }
+    // Fallback if manager not initialized
     return {
-      gameplayWidth,
-      gameplayStartX,
-      gameplayEndX: gameplayStartX + gameplayWidth,
-      keySize,
-      spacing,
-      lanes
+      gameplayWidth: 0,
+      gameplayStartX: 0,
+      gameplayEndX: 0,
+      keySize: 50,
+      spacing: 80,
+      lanes: {}
     };
   }
 
-  handleResize(gameSize?: Phaser.Structs.Size): void {
-    // Safety check: ensure scene is fully initialized
-    if (!this.cameras || !this.cameras.main || !this.scale) {
-      console.warn("[GameScene] Scene not fully initialized, skipping handleResize");
+  protected handleResize(gameSize?: Phaser.Structs.Size): void {
+    if (!this.gameplayLayoutManager || !this.noteManager || !this.holdNoteSystem || !this.visualEffects) {
       return;
     }
-    
-    // Safety check: ensure game has started (keyLanes must exist)
-    if (!this.keyLanes) {
-      // Scene might be in early initialization, skip resize
-      return;
-    }
+
+    const { width, height } = this.scale;
     
     // Handle different parameter formats
-    let width, height;
+    let resizeWidth, resizeHeight;
     if (gameSize && gameSize.width && gameSize.height) {
-      width = gameSize.width;
-      height = gameSize.height;
+      resizeWidth = gameSize.width;
+      resizeHeight = gameSize.height;
     } else {
-      // Fallback to current scale dimensions or window size
-      width = this.scale.width || window.innerWidth || 1920;
-      height = this.scale.height || window.innerHeight || 1080;
-    }
-    
-    // Ensure we have valid dimensions
-    if (!width || !height || width === 0 || height === 0) {
-      width = window.innerWidth || 1920;
-      height = window.innerHeight || 1080;
-    }
-    
-    // Update scale if needed (for Phaser internal consistency)
-    if (this.scale.width !== width || this.scale.height !== height) {
-      this.scale.setGameSize(width, height);
+      resizeWidth = width || window.innerWidth || 1920;
+      resizeHeight = height || window.innerHeight || 1080;
     }
     
     // Resize background
     if (this.backgroundImage) {
-      this.backgroundImage.setPosition(width / 2, height / 2);
-      this.backgroundImage.setDisplaySize(width, height);
+      this.backgroundImage.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundImage.setDisplaySize(resizeWidth, resizeHeight);
     }
     if (this.backgroundRect) {
-      this.backgroundRect.setPosition(width / 2, height / 2);
-      this.backgroundRect.setSize(width, height);
+      this.backgroundRect.setPosition(resizeWidth / 2, resizeHeight / 2);
+      this.backgroundRect.setSize(resizeWidth, resizeHeight);
     }
     
-    // Update score text position (responsive)
-    if (this.scoreText) {
-      const scoreX = getResponsiveSpacing(20, width);
-      const scoreY = getResponsiveSpacing(20, height);
-      this.scoreText.setPosition(scoreX, scoreY);
+    // Update score manager UI texts
+    if (this.scoreManager) {
+      const scoreX = getResponsiveSpacing(20, resizeWidth);
+      const scoreY = getResponsiveSpacing(20, resizeHeight);
+      const comboY = scoreY + getResponsiveSpacing(35, resizeHeight);
+      
+      if (this.scoreText) {
+        this.scoreText.setPosition(scoreX, scoreY);
+      }
+      if (this.comboText) {
+        this.comboText.setPosition(scoreX, comboY);
+      }
+      if (this.comboMultiplierText) {
+        this.comboMultiplierText.setPosition(scoreX, comboY + getResponsiveSpacing(30, resizeHeight));
+      }
     }
     
-    // Update combo text position (responsive)
-    if (this.comboText) {
-      const scoreX = getResponsiveSpacing(20, width);
-      const scoreY = getResponsiveSpacing(20, height) + getResponsiveSpacing(35, height);
-      this.comboText.setPosition(scoreX, scoreY);
-    }
-    
-    // Update combo multiplier text position (responsive)
-    if (this.comboMultiplierText) {
-      const scoreX = getResponsiveSpacing(20, width);
-      const scoreY = getResponsiveSpacing(20, height) + getResponsiveSpacing(65, height);
-      this.comboMultiplierText.setPosition(scoreX, scoreY);
-    }
-    
-    // Recalculate judgment line position (responsive)
-    const newJudgmentY = height - getResponsiveSpacing(100, height);
-    this.JUDGMENT_Y = newJudgmentY;
-    
-    // Recalculate note speed based on new judgment line position
-    const FALL_DISTANCE = newJudgmentY - 0; // SPAWN_Y is always 0
-    this.PIXELS_PER_SECOND = FALL_DISTANCE / this.FALL_TIME;
-    
-    // Recalculate responsive margins
-    const basePerfectMargin = 15; // Base margin from difficulty config
-    const baseGoodMargin = 40;
-    this.perfectMargin = getResponsiveSpacing(basePerfectMargin, height);
-    this.goodMargin = getResponsiveSpacing(baseGoodMargin, height);
-    
-    // Recalculate gameplay layout FIRST (needed for judgment line)
-    const layout = this.calculateGameplayLayout(width, height);
-    this.keyLanes = layout.lanes;
-    this.gameplayLayout = layout;
-    
-      // Update judgment line position to match gameplay area (with theme color)
-      if (this.judgmentLine) {
-        this.judgmentLine.clear();
-        this.judgmentLine.lineStyle(4, this.themeColors.judgmentLine, 1);
-      this.judgmentLine.beginPath();
-      // Use gameplay area boundaries instead of screen edges
-      const marginX = Math.max(50, layout.gameplayStartX);
-      const endX = Math.min(width - 50, layout.gameplayEndX);
-      this.judgmentLine.moveTo(marginX, this.JUDGMENT_Y);
-      this.judgmentLine.lineTo(endX, this.JUDGMENT_Y);
-      this.judgmentLine.strokePath();
-    }
-    
-    // Update all falling notes' positions to match new lane positions
-    if (this.fallingKeys && this.fallingKeys.length > 0) {
-      this.fallingKeys.forEach(note => {
-        if (note.keyType && this.keyLanes[note.keyType]) {
-          // Update note x position to new lane position
-          note.x = this.keyLanes[note.keyType].x;
-          
-          // Update note size if it's a sprite (both regular and hold notes start as sprites)
-          if (note.setDisplaySize) {
-            note.setDisplaySize(layout.keySize, layout.keySize);
-          }
-          
-          // Update hold bar tail if it exists
-          if (note.isHold && note.holdBar) {
-            const holdBarWidth = getResponsiveSpacing(15, width);
-            if (note.held) {
-              // Being held: tail continues falling naturally - just update position
-              note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
-              note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
-            } else {
-              // Falling: normal tail
-              const tailHeight = this.calculateTailHeight(note.holdDuration || 0);
-              note.holdBar.setSize(holdBarWidth, tailHeight);
-              note.holdBar.setOrigin(0.5, 1);
-              note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
-              const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-              note.holdBar.setFillStyle(tailColor.color, 0.7);
+    // Use GameplayLayoutManager for resize
+    const result = this.gameplayLayoutManager.handleResize(
+      gameSize,
+      {
+        updateNotePositions: (fallingKeys, layout, keyLanes) => {
+          // Update all falling notes' positions to match new lane positions
+          fallingKeys.forEach(note => {
+            if (note.keyType && keyLanes[note.keyType]) {
+              // Update note x position to new lane position
+              note.x = keyLanes[note.keyType].x;
+              
+              // Update note size if it's a sprite
+              if (note.setDisplaySize) {
+                note.setDisplaySize(layout.keySize, layout.keySize);
+              }
+              
+              // Update hold bar tail if it exists
+              if (note.isHold && note.holdBar && this.holdNoteSystem) {
+                const holdBarWidth = getResponsiveSpacing(15, resizeWidth);
+                if (note.held) {
+                  // Being held: tail continues falling naturally - just update position
+                  note.holdBar.setPosition(keyLanes[note.keyType].x, note.y);
+                  note.holdBar.setFillStyle(this.themeColors.perfect, 1.0);
+                } else {
+                  // Falling: normal tail
+                  const tailHeight = this.holdNoteSystem.calculateTailHeight(note.holdDuration || 0);
+                  note.holdBar.setSize(holdBarWidth, tailHeight);
+                  note.holdBar.setOrigin(0.5, 1);
+                  note.holdBar.setPosition(keyLanes[note.keyType].x, note.y);
+                  const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
+                  note.holdBar.setFillStyle(tailColor.color, 0.7);
+                }
+              }
             }
-          }
+          });
+        },
+        updateKeyVisuals: (keyVisuals, keyGlows, layout, keyLanes, height) => {
+          // Update key visuals position and size
+          const keyVisualY = height - getResponsiveSpacing(50, height);
+          Object.keys(keyVisuals).forEach(key => {
+            if (keyVisuals[key] && keyLanes[key]) {
+              keyVisuals[key].setPosition(keyLanes[key].x, keyVisualY);
+              keyVisuals[key].setDisplaySize(layout.keySize, layout.keySize);
+            }
+            if (keyGlows && keyGlows[key] && keyLanes[key]) {
+              keyGlows[key].setPosition(keyLanes[key].x, keyVisualY);
+              keyGlows[key].setRadius(layout.keySize * 0.7);
+            }
+          });
+        },
+        updateBackground: (width, height) => {
+          // Already handled above
+        },
+        updateUITexts: (width, height) => {
+          // Already handled above
+        },
+        calculateTailHeight: (holdDuration) => {
+          return this.holdNoteSystem ? this.holdNoteSystem.calculateTailHeight(holdDuration) : 0;
         }
-      });
+      },
+      this.FALL_TIME
+    );
+
+    // Update judgment line
+    if (this.judgmentLine) {
+      this.judgmentLine = this.gameplayLayoutManager.createJudgmentLine(this.judgmentLine);
     }
-    
-    // Update key visuals position and size
-    if (this.keyVisuals) {
-      const keyVisualY = height - getResponsiveSpacing(50, height);
-      Object.keys(this.keyVisuals).forEach(key => {
-        if (this.keyVisuals[key] && this.keyLanes[key]) {
-          this.keyVisuals[key].setPosition(this.keyLanes[key].x, keyVisualY);
-          // Use layout keySize for consistent sizing
-          this.keyVisuals[key].setDisplaySize(layout.keySize, layout.keySize);
-        }
-        // Update glow position and size
-        if (this.keyGlows && this.keyGlows[key] && this.keyLanes[key]) {
-          this.keyGlows[key].setPosition(this.keyLanes[key].x, keyVisualY);
-          this.keyGlows[key].setRadius(layout.keySize * 0.7);
-        }
-      });
-    }
-    
+
     // Update screen height and cull margin cache
-    this.screenHeight = height;
-    this.cullMargin = getResponsiveSpacing(100, height);
+    this.screenHeight = resizeHeight;
+    this.cullMargin = getResponsiveSpacing(100, resizeHeight);
+    
+    // Update managers
+    if (this.gameUpdateHandler) {
+      this.gameUpdateHandler.updateJudgmentY(result.judgmentY, result.pixelsPerSecond);
+      this.gameUpdateHandler.updateScreenDimensions(this.screenHeight, this.cullMargin);
+    }
+
+    // Update note manager layout
+    if (this.gameplayLayoutManager.gameplayLayout) {
+      this.noteManager.updateLayout(this.gameplayLayoutManager.gameplayLayout);
+    }
+
+    // Update visual effects falling keys reference
+    if (this.visualEffects) {
+      this.visualEffects.updateFallingKeys(this.noteManager.fallingKeys);
+    }
   }
 
   shutdown(): void {
     // Cleanup: Release all pooled objects when scene shuts down
-    if (this.holdNotePool) {
-      this.holdNotePool.releaseAll();
-    }
-    if (this.notePools) {
-      Object.values(this.notePools).forEach(pool => pool.releaseAll());
+    if (this.noteManager) {
+      this.noteManager.shutdown();
     }
     
     // Cleanup: Stop all key animations
@@ -1224,607 +887,59 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
-    // Don't update if music hasn't started yet or if paused
-    if (!this.musicStarted || this.isPaused) {
-      return;
-    }
-    
-    // Ensure we have a valid startTime
-    if (this.startTime === 0 || this.startTime === undefined) {
-      // Use current time as fallback
-      this.startTime = this.time.now;
-      console.log(`[GameScene] startTime was 0, setting to: ${this.startTime}`);
-    }
-
-    // Calculate accurate game time using audio.currentTime when available
-    // This provides better synchronization than scene time alone
-    const elapsedTime = getAccurateGameTime(
-      this.music,
-      this.time.now, // Current scene time (for reference, but not used in fallback)
-      this.audioStartTime, // Date.now() timestamp when audio started
-      this.audioOffset
-    ); 
-
-    // Spawn notes when their spawn time arrives
-    // Performance optimization: Cache songData and FALL_TIME
-    const songData = this.songData;
-    const fallTime = this.FALL_TIME;
-    
-    if (!songData || !Array.isArray(songData)) {
-      // Log error occasionally (not every frame)
-      if (this.time.now % 2000 < delta) { // Log every ~2 seconds
-        console.error(`[GameScene] songData is invalid in update loop!`, songData);
-      }
-      return;
-    }
-    
-    // Spawn notes - optimized loop
-    const songDataLength = songData.length;
-    let spawnedThisFrame = 0;
-    
-    while (
-      this.currentNoteIndex < songDataLength &&
-      (songData[this.currentNoteIndex].time - fallTime) <= elapsedTime
-    ) {
-      const noteData = songData[this.currentNoteIndex];
-      this.spawnKey(noteData.key, noteData.hold, noteData.duration || 0);
-      this.currentNoteIndex++;
-      spawnedThisFrame++;
-    }
-    
-    // Debug: Log spawning activity (only first few times to avoid spam)
-    if (spawnedThisFrame > 0) {
-      console.log(`[GameScene] Spawned ${spawnedThisFrame} note(s) at elapsedTime=${elapsedTime.toFixed(3)}s, currentIndex=${this.currentNoteIndex}/${this.songData.length}`);
-    }
-    
-    // Debug: Log if we're not spawning when we should (only in debug mode)
-    if (this.currentNoteIndex < songDataLength && spawnedThisFrame === 0) {
-      const nextNoteTime = songData[this.currentNoteIndex].time;
-      const nextSpawnTime = nextNoteTime - fallTime;
-      // Only log occasionally to avoid spam (check every ~2 seconds)
-      if (this.time.now % 2000 < delta) {
-        console.log(`[GameScene] Waiting to spawn note ${this.currentNoteIndex}: nextSpawnTime=${nextSpawnTime.toFixed(3)}s, elapsedTime=${elapsedTime.toFixed(3)}s, diff=${(nextSpawnTime - elapsedTime).toFixed(3)}s`);
-      }
-    }
-
-    // Move falling notes using time-based movement (frame-rate independent)
-    // Performance optimization: Cache values to reduce property lookups
-    const { width, height } = this.scale;
-    const pixelsPerSecond = this.PIXELS_PER_SECOND;
-    const screenHeight = this.screenHeight;
-    const cullMargin = this.cullMargin;
-    const judgmentY = this.JUDGMENT_Y;
-    
-    // Pre-calculate movement delta once
-    const deltaSeconds = delta / 1000;
-    const movementDelta = pixelsPerSecond * deltaSeconds;
-    
-    // Use reverse iteration for safe removal during loop
-    for (let i = this.fallingKeys.length - 1; i >= 0; i--) {
-      const key = this.fallingKeys[i];
+    if (this.gameUpdateHandler) {
+      // Update music reference
+      this.gameUpdateHandler.updateMusic(this.music);
       
-      // Update position for all notes (needed for collision detection)
-      // Hold notes continue scrolling even when held - the tail "unravels" as it passes the line
-      key.y += movementDelta;
-      
-      // Update particle trail position if it exists (Phaser 3 doesn't have follow method)
-      // Particle emitters have x and y properties that can be set directly
-      if (key.trail) {
-        key.trail.x = key.x;
-        key.trail.y = key.y;
+      // Update visual effects falling keys reference
+      if (this.visualEffects && this.noteManager) {
+        this.visualEffects.updateFallingKeys(this.noteManager.fallingKeys);
       }
       
-      // Handle hold bar tail for ALL hold notes (both held and not held)
-      if (key.isHold && key.holdBar) {
-        const originalTailHeight = this.calculateTailHeight(key.holdDuration || 0);
-        const holdBarWidth = getResponsiveSpacing(15, width);
-        
-        // Always hide key sprite for held notes
-        if (key.held) {
-          key.setVisible(false);
-          if (key.trail) {
-            key.trail.setVisible(false);
-          }
-        }
-        
-        // Check if the key sprite (bottom of tail) has passed the judgment line
-        if (key.y > judgmentY) {
-          // Key has passed judgment line - apply cut-off logic
-          
-          // Calculate the top of the tail
-          const tailTop = key.y - originalTailHeight;
-          
-          // Check if any part of the tail is above the judgment line
-          if (tailTop < judgmentY) {
-            // Part of the tail is above the judgment line - calculate visible height
-            const visibleHeight = judgmentY - tailTop;
-            const clippedHeight = Math.min(visibleHeight, originalTailHeight);
-            
-            if (clippedHeight > 0) {
-              // Resize tail to show only the portion above judgment line
-              key.holdBar.setSize(holdBarWidth, clippedHeight);
-              key.holdBar.setOrigin(0.5, 1);
-              // Position tail so its bottom is at the judgment line
-              key.holdBar.setPosition(key.x, judgmentY);
-              key.holdBar.setVisible(true);
-              
-              // Set color based on whether note is held or not
-              if (key.held) {
-                // Pulse effect for held notes
-                const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
-                const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
-                const greenIntensity = Math.floor(255 * pulse);
-                key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
-              } else {
-                // Normal color for non-held notes
-                const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-                key.holdBar.setFillStyle(tailColor.color, 0.7);
-                
-                // Trigger miss animation if not already triggered
-                if (!key.missTriggered) {
-                  key.missTriggered = true;
-                  const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-                  
-                  // Check if this key is currently being held for another note
-                  let isKeyCurrentlyHeld = false;
-                  for (let j = 0; j < this.fallingKeys.length; j++) {
-                    const otherNote = this.fallingKeys[j];
-                    if (otherNote.keyType === key.keyType && otherNote.isHold && otherNote.held && otherNote.holdStartTime) {
-                      isKeyCurrentlyHeld = true;
-                      break;
-                    }
-                  }
-                  
-                  // No animation when note crosses judgment line - only track miss
-                  
-                  // Track miss
-                  this.missCount++;
-                  
-                  // End current combo and record it
-                  if (this.currentStreak > 0 && this.currentComboStart) {
-                    this.comboHistory.push(this.currentStreak);
-                    this.currentComboStart = null;
-                  }
-                  
-                  this.currentStreak = 0;
-                  this.lastMilestone = 0;
-                  this.failed = true;
-                  
-                  // Update combo display (will hide it)
-                  this.updateComboDisplay(0);
-                }
-                
-                // Note continues scrolling naturally - no hiding or removal
-              }
-            } else {
-              // No visible portion - hide the tail
-              key.holdBar.setVisible(false);
-            }
-          } else {
-            // Entire tail is below the judgment line - note continues scrolling naturally
-            
-            // If this is a held note that passed the line, check if it was released too early
-            // Only mark as miss if the hold duration wasn't completed
-            // The key visual should remain in pressed state until user releases the key
-            if (key.held && !key.missTriggered) {
-              // Check if hold was completed successfully using audio time
-              const currentAudioTime = this.getCurrentAudioTime();
-              const holdStartAudioTime = key.holdStartAudioTime;
-              const requiredDuration = key.holdDuration || 0;
-              const expectedEndTime = holdStartAudioTime + requiredDuration;
-              const durationTolerance = 0.1; // 100ms tolerance
-              
-              // Check if hold duration has completed
-              if (currentAudioTime >= expectedEndTime - durationTolerance) {
-                // Hold completed successfully - auto-complete it
-                // Check if key is still physically pressed
-                if (this.keysPressed[key.keyType]) {
-                  // Key is still pressed - keep visual pressed and auto-complete the hold
-                  const distance = Math.abs(key.y - this.JUDGMENT_Y);
-                  const perfectMargin = this.perfectMargin || 15;
-                  
-                  let score = 30;
-                  if (distance < perfectMargin && currentAudioTime >= expectedEndTime) {
-                    score = 40;
-                  } else if (currentAudioTime >= expectedEndTime * 0.7) {
-                    score = 30;
-                  } else {
-                    score = 20;
-                  }
-                  
-                  // Apply combo multiplier
-                  const comboMultiplier = this.getComboMultiplier(this.currentStreak);
-                  const multipliedScore = Math.floor(score * comboMultiplier);
-                  
-                  this.score += multipliedScore;
-                  this.notesHit++;
-                  this.currentStreak++;
-                  if (this.currentStreak > this.longestStreak) {
-                    this.longestStreak = this.currentStreak;
-                    
-                    if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
-                      const totalSongs = getAllSongs().length;
-                      const gameData = {
-                        accuracy: 0,
-                        grade: '',
-                        difficulty: this.currentDifficulty,
-                        longestStreak: this.longestStreak,
-                        failed: false,
-                        song: this.currentSongId
-                      };
-                      const newlyUnlocked = checkAchievements(gameData, totalSongs);
-                      if (newlyUnlocked.includes('combo_master')) {
-                        this.comboMasterUnlocked = true;
-                        this.showAchievementNotification('combo_master');
-                      }
-                    }
-                  }
-                  
-                  if (this.currentStreak === 1) {
-                    this.currentComboStart = this.time.now;
-                  }
-                  
-                  this.updateComboDisplay(this.currentStreak);
-                  this.updateScore(this.score);
-                  
-                  // Stop hold pulse but keep key visual pressed (since key is still held)
-                  this.stopHoldPulse(key.keyType);
-                  
-                  // Clean up hold bar
-                  if (key.holdBar) {
-                    key.holdBar.setVisible(false);
-                    this.holdNotePool.release(key.holdBar);
-                    key.holdBar = null;
-                  }
-                  
-                  // Clean up note but keep key visual pressed
-                  this.releaseNote(key);
-                  this.fallingKeys.splice(i, 1);
-                  
-                  // Key visual stays pressed because this.keysPressed[key.keyType] is still true
-                  // It will only reset when handleKeyRelease is called
-                  continue; // Skip to next note
-                } else {
-                  // Hold completed but key was released - this should be handled in handleKeyRelease
-                  // But if we're here, the note wasn't cleaned up yet, so mark it
-                  key.missTriggered = true;
-                }
-              } else {
-                // Hold duration hasn't completed yet - check if key is still pressed
-                // Only mark as miss if key was released (not physically pressed)
-                if (!this.keysPressed[key.keyType]) {
-                  // Key was released too early - mark as miss
-                  key.missTriggered = true;
-                  const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-                  this.stopHoldPulse(key.keyType);
-                  // Reset key visual immediately without animation
-                  const keyVisual = this.keyVisuals[key.keyType];
-                  const glow = this.keyGlows[key.keyType];
-                  if (keyVisual) {
-                    this.tweens.killTweensOf(keyVisual);
-                    keyVisual.setScale(1.0, 1.0);
-                    keyVisual.clearTint();
-                  }
-                  if (glow) {
-                    this.tweens.killTweensOf(glow);
-                    glow.setVisible(false);
-                    glow.setAlpha(0);
-                    glow.setScale(1);
-                  }
-                  
-                  this.missCount++;
-                  if (this.currentStreak > 0 && this.currentComboStart) {
-                    this.comboHistory.push(this.currentStreak);
-                    this.currentComboStart = null;
-                  }
-                  this.currentStreak = 0;
-                  this.lastMilestone = 0;
-                  this.failed = true;
-                  this.updateComboDisplay(0);
-                }
-                // If key is still pressed, don't reset visual - keep it pressed
-              }
-              // If hold was completed successfully, key stays pressed until user releases
-            }
-            
-            // Note continues scrolling - no removal
-          }
-        } else {
-          // Key hasn't reached judgment line yet - show full tail
-          key.holdBar.setSize(holdBarWidth, originalTailHeight);
-          key.holdBar.setOrigin(0.5, 1);
-          key.holdBar.setPosition(key.x, key.y);
-          key.holdBar.setVisible(true);
-          
-          // Set color based on whether note is held or not
-          if (key.held) {
-            // Pulse effect for held notes
-            const holdElapsed = (this.time.now - key.holdStartTime) / 1000;
-            const pulse = Math.sin(holdElapsed * 10) * 0.2 + 0.8;
-            const greenIntensity = Math.floor(255 * pulse);
-            key.holdBar.setFillStyle(Phaser.Display.Color.GetColor(0, greenIntensity, 0), 1.0);
-          } else {
-            // Normal color for non-held notes
-            const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
-            key.holdBar.setFillStyle(tailColor.color, 0.7);
-          }
-        }
-      }
+      // Delegate to update handler
+      this.gameUpdateHandler.update(time, delta, this.musicStarted, this.isPaused);
       
-      // Culling: Hide notes that are far off-screen to reduce rendering
-      const isOffScreen = key.y < -cullMargin || key.y > screenHeight + cullMargin;
-      if (isOffScreen && key.visible) {
-        key.setVisible(false);
-        if (key.isHold && key.holdBar) {
-          key.holdBar.setVisible(false);
-        }
-      } else if (!isOffScreen && !key.visible) {
-        // Don't make visible if key sprite was hidden for hold or removed
-        if (!key.keySpriteHidden && !key.keyRemoved && !key.held) {
-          key.setVisible(true);
-          if (key.isHold && key.holdBar && !key.held) {
-            key.holdBar.setVisible(true);
-          }
-        }
-      }
-
-
-      // Miss detection for regular notes that have passed the judgment line (only trigger once)
-      // Notes continue scrolling naturally - no automatic removal
-      if (!key.isHold && key.y > judgmentY && !key.missTriggered) {
-        key.missTriggered = true;
-        
-        // Check if this key is currently being held for another note
-        let isKeyCurrentlyHeld = false;
-        for (let j = 0; j < this.fallingKeys.length; j++) {
-          const otherNote = this.fallingKeys[j];
-          if (otherNote.keyType === key.keyType && otherNote.isHold && otherNote.held && otherNote.holdStartTime) {
-            isKeyCurrentlyHeld = true;
-            break;
-          }
-        }
-        
-        // Regular note miss
-        const missColor = Phaser.Display.Color.IntegerToColor(this.themeColors.miss).rgba;
-        // No animation when note crosses judgment line - only track miss
-        
-        // Track miss
-        this.missCount++;
-        
-        // End current combo and record it
-        if (this.currentStreak > 0 && this.currentComboStart) {
-          this.comboHistory.push(this.currentStreak);
-          this.currentComboStart = null;
-        }
-        
-        this.currentStreak = 0;
-        this.lastMilestone = 0; // Reset milestone tracking
-        this.failed = true;
-        
-        // Update combo display (will hide it)
-        this.updateComboDisplay(0);
-        
-        // Note continues scrolling naturally - no removal
-      }
-    }
-
-    // Ensure Debrief Scene appears when the song ends
-    if (!this.music.isPlaying || elapsedTime >= this.music.duration) {
-      // Record final combo if still active
-      if (this.currentStreak > 0 && this.currentComboStart) {
-        this.comboHistory.push(this.currentStreak);
-      }
-      
-      // Calculate average combo
-      const averageCombo = this.comboHistory.length > 0
-        ? this.comboHistory.reduce((a, b) => a + b, 0) / this.comboHistory.length
-        : 0;
-      
-      this.scene.start("DebriefScene", {
-        score: this.score,
-        totalNotes: this.totalNotes,
-        notesHit: this.notesHit,
-        longestStreak: this.longestStreak,
-        averageCombo: Math.round(averageCombo * 10) / 10,
-        perfectCount: this.perfectCount,
-        goodCount: this.goodCount,
-        missCount: this.missCount,
-        failed: this.failed,
-        song: this.currentSongId,
-        difficulty: this.currentDifficulty,
-      });
+      // Sync note index from handler
+      this.currentNoteIndex = this.gameUpdateHandler.currentNoteIndex;
     }
   }
 
   /**
- * Animate key press with scale and color feedback
- * @param {string} key - The key that was pressed (W, A, S, D)
- * @param {string} quality - "perfect", "good", or "miss"
- * @param {boolean} isHold - Whether this is a hold note
- */
+   * Animate key press with scale and color feedback
+   * @param {string} key - The key that was pressed (W, A, S, D)
+   * @param {string} quality - "perfect", "good", or "miss"
+   * @param {boolean} isHold - Whether this is a hold note
+   */
 
-  animateKeyPress(key: string, quality: string = "good", isHold: boolean = false): void {
-    // Hold notes are handled separately - skip them here
-    if (isHold) {
-      return;
-    }
-    
-    if (!this.keyVisuals[key]) return;
-    
-    const keyVisual = this.keyVisuals[key];
-    const glow = this.keyGlows[key];
-    
-    // Check if key is currently in pressed state (being held for a hold note)
-    const currentScale = keyVisual.scaleX || 1.0;
-    if (currentScale < 1.0) {
-      // Check if this key is currently being held for a hold note
-      let isKeyCurrentlyHeld = false;
-      for (let i = 0; i < this.fallingKeys.length; i++) {
-        const note = this.fallingKeys[i];
-        if (note.keyType === key && note.isHold && note.held && note.holdStartTime) {
-          isKeyCurrentlyHeld = true;
-          break;
-        }
-      }
-      // If key is being held, don't animate (would interfere with pressed state)
-      if (isKeyCurrentlyHeld) {
-        return;
-      }
-    }
-    
-    // Stop any existing tweens on this key
-    this.tweens.killTweensOf(keyVisual);
-    if (glow) {
-      this.tweens.killTweensOf(glow);
-    }
-  
-    // Determine color based on quality (use theme colors)
-    let tintColor, glowColor;
-    switch(quality) {
-      case "perfect":
-        tintColor = this.themeColors.perfect;
-        glowColor = this.themeColors.perfect;
-        break;
-      case "good":
-        tintColor = this.themeColors.good;
-        glowColor = this.themeColors.good;
-        break;
-      case "miss":
-        tintColor = this.themeColors.miss;
-        glowColor = this.themeColors.miss;
-        break;
-      default:
-        tintColor = this.themeColors.note;
-        glowColor = 0x00aaff;
-    }
-    
-    // Apply tint
-    keyVisual.setTint(tintColor);
-    
-    // For ALL notes: scale DOWN to pressed state (0.85)
-    this.tweens.add({
-      targets: keyVisual,
-      scaleX: 0.85,
-      scaleY: 0.85,
-      duration: 100,
-      ease: "Linear",
-      yoyo: false,
-      // NO onComplete - key stays pressed until manually released
-    });
-    
-    // Glow effect - fade in then out (remove yoyo)
-    if (glow) {
-      glow.setFillStyle(glowColor, 0.6);
-      glow.setVisible(true);
-      this.tweens.add({
-        targets: glow,
-        alpha: 0.8,
-        scale: 1.3,
-        duration: 100,
-        ease: "Linear",
-        yoyo: false, // Remove yoyo - just fade out
-      });
+  protected animateKeyPress(key: string, quality: string = "good", isHold: boolean = false): void {
+    if (this.visualEffects) {
+      this.visualEffects.animateKeyPress(key, quality, isHold);
     }
   }
-  
+
   /**
    * Animate key release (for hold notes)
    * @param {string} key - The key that was released
    */
-  animateKeyRelease(key: string): void {
-    if (!this.keyVisuals[key]) return;
-    
-    const keyVisual = this.keyVisuals[key];
-    const glow = this.keyGlows[key];
-    
-    // Stop any existing animations
-    this.tweens.killTweensOf(keyVisual);
-    if (glow) {
-      this.tweens.killTweensOf(glow);
-    }
-    
-    // Smoothly return to normal size and clear tint
-   this.tweens.add({
-      targets: keyVisual,
-      scaleX: 1.0,
-      scaleY: 1.0,
-      duration: 200,
-      ease: "Power2",
-      onComplete: () => {
-        keyVisual.clearTint();
-      }
-    });
-   
-    // Fade out glow smoothly
-    if (glow) {
-      this.tweens.add({
-        targets: glow,
-        alpha: 0,
-        duration: 200,
-        ease: "Power2",
-        onComplete: () => {
-          glow.setVisible(false);
-        }
-      });
+  protected animateKeyRelease(key: string): void {
+    if (this.visualEffects) {
+      this.visualEffects.animateKeyRelease(key);
     }
   }
+
   /**
    * Stop pulsing animation for hold notes
    * @param {string} key - The key that was released
    */
-  stopHoldPulse(key: string): void {
-    if (!this.keyVisuals[key]) return;
-    
-    const keyVisual = this.keyVisuals[key];
-    const glow = this.keyGlows[key];
-    
-    // Kill pulsing tweens
-    this.tweens.killTweensOf(keyVisual);
-    if (glow) {
-      this.tweens.killTweensOf(glow);
+  protected stopHoldPulse(key: string): void {
+    if (this.visualEffects) {
+      this.visualEffects.stopHoldPulse(key);
     }
   }
 
-  updateScore(newScore: number): void {
-    // Animate score change
-    if (newScore !== this.lastScore) {
-      const scoreDiff = newScore - this.lastScore;
-      
-      // Update text
-      this.scoreText.setText("Score: " + newScore);
-      
-      // Animate score text (scale up then back)
-      this.tweens.add({
-        targets: this.scoreText,
-        scaleX: 1.2,
-        scaleY: 1.2,
-        duration: 150,
-        yoyo: true,
-        ease: "Power2"
-      });
-      
-      // Show score gain indicator if significant
-      if (scoreDiff > 0) {
-        const { width, height } = this.scale;
-        const scoreX = getResponsiveSpacing(20, width);
-        const scoreY = getResponsiveSpacing(20, height);
-        const gainText = this.add.text(scoreX + 150, scoreY, `+${scoreDiff}`, {
-          fontSize: getResponsiveFontSize(28, width, 22, 34), // Increased from 18, 14, 22
-          color: Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba,
-          fontStyle: "bold"
-        });
-        
-        this.tweens.add({
-          targets: gainText,
-          y: scoreY - 30,
-          alpha: 0,
-          duration: 800,
-          ease: "Power2",
-          onComplete: () => gainText.destroy()
-        });
-      }
-      
-      this.lastScore = newScore;
+  protected updateScore(newScore: number): void {
+    if (this.scoreManager) {
+      this.scoreManager.updateScore(newScore);
     }
   }
 
@@ -1832,89 +947,20 @@ export default class GameScene extends Phaser.Scene {
    * Create particle effects for perfect hits
    * @param {string} key - The key that was pressed
    */
-  createPerfectHitParticles(key: string): void {
-    if (!this.keyLanes[key]) return;
-    
-    const { width, height } = this.scale;
-    const lane = this.keyLanes[key];
-    const particleY = this.JUDGMENT_Y;
-    
-    // Create burst of particles at judgment line
-    const particles = this.add.particles(lane.x, particleY, 'noteTrail', {
-      speed: { min: 50, max: 150 },
-      scale: { start: 0.5, end: 0 },
-      alpha: { start: 1, end: 0 },
-      lifespan: 600,
-      quantity: 15,
-      tint: this.themeColors.perfect,
-      blendMode: Phaser.BlendModes.ADD
-    });
-    
-    // Destroy particles after animation
-    this.time.delayedCall(600, () => {
-      particles.destroy();
-    });
+  protected createPerfectHitParticles(key: string): void {
+    if (this.visualEffects) {
+      this.visualEffects.createPerfectHitParticles(key);
+    }
   }
 
   /**
    * Update combo display with visual feedback
    * @param {number} combo - Current combo count
    */
-  updateComboDisplay(combo: number): void {
-    if (combo === 0) {
-      // Hide combo display when combo is broken
-      this.tweens.add({
-        targets: this.comboText,
-        alpha: 0,
-        scaleX: 0.5,
-        scaleY: 0.5,
-        duration: 300,
-        ease: "Power2"
-      });
-      this.tweens.add({
-        targets: this.comboMultiplierText,
-        alpha: 0,
-        duration: 300
-      });
-      return;
+  protected updateComboDisplay(combo: number): void {
+    if (this.scoreManager) {
+      this.scoreManager.updateComboDisplay(combo);
     }
-
-    // Show combo display
-    this.comboText.setText(`${combo}x COMBO`);
-    this.comboText.setAlpha(1);
-
-    // Calculate dynamic font size based on combo (grows with combo)
-    const { width } = this.scale;
-    const baseSizeStr = getResponsiveFontSize(20, width, 16, 24);
-    const maxSizeStr = getResponsiveFontSize(48, width, 36, 60);
-    const baseSize = parseFloat(baseSizeStr);
-    const maxSize = parseFloat(maxSizeStr);
-    // Scale from baseSize to maxSize based on combo (capped at 100x for max size)
-    const comboScale = Math.min(combo / 100, 1);
-    const dynamicSize = baseSize + (maxSize - baseSize) * comboScale;
-    this.comboText.setFontSize(dynamicSize);
-
-    // Animate combo text (pulse effect)
-    this.tweens.add({
-      targets: this.comboText,
-      scaleX: { from: 1.0, to: 1.2 },
-      scaleY: { from: 1.0, to: 1.2 },
-      duration: 150,
-      yoyo: true,
-      ease: "Power2"
-    });
-
-    // Update combo multiplier display
-    const multiplier = this.getComboMultiplier(combo);
-    if (multiplier > 1) {
-      this.comboMultiplierText.setText(`${multiplier.toFixed(1)}x MULTIPLIER`);
-      this.comboMultiplierText.setAlpha(1);
-    } else {
-      this.comboMultiplierText.setAlpha(0);
-    }
-
-    // Check for milestone combos (10x, 50x, 100x)
-    this.checkMilestoneCombo(combo);
   }
 
   /**
@@ -1922,10 +968,10 @@ export default class GameScene extends Phaser.Scene {
    * @param {number} combo - Current combo count
    * @returns {number} Multiplier value
    */
-  getComboMultiplier(combo: number): number {
-    if (combo >= 100) return 2.5;
-    if (combo >= 50) return 2.0;
-    if (combo >= 10) return 1.5;
+  protected getComboMultiplier(combo: number): number {
+    if (this.scoreManager) {
+      return this.scoreManager.getComboMultiplier(combo);
+    }
     return 1.0;
   }
 
@@ -1933,17 +979,9 @@ export default class GameScene extends Phaser.Scene {
    * Check and trigger milestone combo effects
    * @param {number} combo - Current combo count
    */
-  checkMilestoneCombo(combo: number): void {
-    const milestones = [2, 5, 10]; // Changed from [10, 50, 100] - first shake at 25 instead of 10
-    // Or if you want fewer shakes: const milestones = [50, 100];
-    // Or if you want more frequent: const milestones = [5, 10, 25, 50, 100];
-    
-    for (const milestone of milestones) {
-      if (combo === milestone && this.lastMilestone < milestone) {
-        this.lastMilestone = milestone;
-        this.triggerMilestoneEffect(milestone);
-        break; // Only trigger one milestone per combo increase
-      }
+  protected checkMilestoneCombo(combo: number): void {
+    if (this.scoreManager) {
+      this.scoreManager.checkMilestoneCombo(combo);
     }
   }
 
@@ -1951,311 +989,22 @@ export default class GameScene extends Phaser.Scene {
    * Trigger visual effects for milestone combos
    * @param {number} milestone - Milestone value (10, 50, or 100)
    */
-  triggerMilestoneEffect(milestone: number): void {
-    const { width, height } = this.scale;
-    
-    // Screen flash effect
-    const flash = this.add.rectangle(width / 2, height / 2, width, height, 0xffffff, 0);
-    flash.setDepth(999);
-    flash.setBlendMode(Phaser.BlendModes.ADD);
-    
-    // Flash animation
-    this.tweens.add({
-      targets: flash,
-      alpha: { from: 0, to: 0.3 },
-      duration: 100,
-      yoyo: true,
-      ease: "Power2",
-      onComplete: () => flash.destroy()
-    });
-
-    // Screen shake effect (reduced intensity, faster)
-    const shakeIntensity = milestone === 100 ? 5 : milestone === 50 ? 3 : 2; // Reduced from 20, 15, 10
-    const shakeDuration = milestone === 100 ? 200 : milestone === 50 ? 150 : 100; // Faster (reduced from 500, 400, 300)
-    
-    this.cameras.main.shake(shakeDuration, shakeIntensity / 100);
-
-    // Milestone text popup
-    const milestoneText = this.add.text(width / 2, height / 2 - getResponsiveSpacing(100, height), 
-      `${milestone}x COMBO!`, {
-      fontSize: getResponsiveFontSize(64, width, 48, 80),
-      color: "#ffff00",
-      fontStyle: "bold",
-      fontFamily: "'Orbitron', 'Arial', sans-serif",
-      stroke: "#000000",
-      strokeThickness: 4
-    }).setOrigin(0.5).setDepth(1000);
-
-    // Animate milestone text
-    milestoneText.setScale(0);
-    this.tweens.add({
-      targets: milestoneText,
-      scaleX: 1.5,
-      scaleY: 1.5,
-      duration: 300,
-      yoyo: true,
-      ease: "Back.easeOut",
-      onComplete: () => {
-        this.tweens.add({
-          targets: milestoneText,
-          alpha: 0,
-          scaleX: 1.2,
-          scaleY: 1.2,
-          duration: 500,
-          delay: 1000,
-          ease: "Power2",
-          onComplete: () => milestoneText.destroy()
-        });
-      }
-    });
-
-    // Particle burst for milestone
-    const particleCount = milestone === 100 ? 50 : milestone === 50 ? 30 : 20;
-    const particles = this.add.particles(width / 2, height / 2, 'noteTrail', {
-      speed: { min: 100, max: 300 },
-      scale: { start: 1, end: 0 },
-      alpha: { start: 1, end: 0 },
-      lifespan: 1000,
-      quantity: particleCount,
-      tint: milestone === 100 ? 0xffd700 : milestone === 50 ? 0xff8800 : 0xffff00,
-      blendMode: Phaser.BlendModes.ADD
-    });
-
-    this.time.delayedCall(1000, () => {
-      particles.destroy();
-    });
+  protected triggerMilestoneEffect(milestone: number): void {
+    if (this.scoreManager) {
+      this.scoreManager.triggerMilestoneEffect(milestone);
+    }
   }
 
-  handlePlayerInput(event: KeyboardEvent): void {
-    const keyPressed = event.key.toUpperCase();
-    const perfectMargin = this.perfectMargin || 15;
-    const goodMargin = this.goodMargin || 40;
-    let noteHit = false;
-
-    if (this.keyLanes[keyPressed]) {
-      // Check if this is a fresh key press (not a key repeat)
-      const wasAlreadyPressed = this.keysPressed[keyPressed] || false;
-      
-      // Only process if this is a fresh press (key transitioning from not pressed to pressed)
-      if (wasAlreadyPressed) {
-        // Key is already held - don't process hold note activation
-        // This prevents activating holds when key was pressed before note reached the line
-        return;
-      }
-      
-      // Mark key as pressed
-      this.keysPressed[keyPressed] = true;
-      
-      for (let i = 0; i < this.fallingKeys.length; i++) {
-        const note = this.fallingKeys[i];
-        
-        if (note.keyType === keyPressed) {
-          const distance = Math.abs(note.y - this.JUDGMENT_Y);
-
-          if (note.isHold) {
-            // Start holding the note
-            // Only activate if the note's tail (key sprite) is at or near the judgment line
-            // AND this is a fresh key press (not a key repeat)
-            const noteHasReachedLine = note.y >= this.JUDGMENT_Y - goodMargin;
-            const noteHasntPassedTooFar = note.y <= this.JUDGMENT_Y + goodMargin;
-            
-            if (noteHasReachedLine && noteHasntPassedTooFar && !note.held) {
-              noteHit = true;
-              note.held = true;
-              note.holdStartTime = this.time.now;
-              
-              // Guard: Make sure we haven't already set this to pressed state
-              const keyVisual = this.keyVisuals[keyPressed];
-              if (keyVisual && keyVisual.scaleX >= 1.0) {
-                // Stop any existing animations FIRST
-                this.tweens.killTweensOf(keyVisual);
-                
-                // Determine color based on quality
-                let quality = distance < perfectMargin ? "perfect" : "good";
-                const tintColor = quality === "perfect" ? this.themeColors.perfect : this.themeColors.good;
-                
-                // Immediately set to pressed state (no animation)
-                keyVisual.setScale(0.85, 0.85);
-                keyVisual.setTint(tintColor);
-                
-                // Show static glow (no pulsing, no animation)
-                const glow = this.keyGlows[keyPressed];
-                if (glow) {
-                  this.tweens.killTweensOf(glow);
-                  glow.setFillStyle(tintColor, 0.4);
-                  glow.setVisible(true);
-                  glow.setAlpha(0.6);
-                  glow.setScale(1.0);
-                }
-              }
-              
-              // Transform key sprite into hold bar
-              this.transformToHoldBar(note, keyPressed);
-            }
-            continue;
-          } else {
-            // Regular note handling
-            let quality = "good";
-            let baseScore = 0;
-            if (distance < perfectMargin) {
-              const perfectColor = Phaser.Display.Color.IntegerToColor(this.themeColors.perfect).rgba;
-              baseScore = 20;
-              this.perfectCount++;
-              quality = "perfect";
-            } else if (distance < goodMargin) {
-              const goodColor = Phaser.Display.Color.IntegerToColor(this.themeColors.good).rgba;
-              baseScore = 10;
-              this.goodCount++;
-              quality = "good";
-            } else {
-              continue;
-            }
-            
-            noteHit = true;
-            
-            // Apply combo multiplier to score
-            const comboMultiplier = this.getComboMultiplier(this.currentStreak);
-            const multipliedScore = Math.floor(baseScore * comboMultiplier);
-            
-            // Animate key press with quality-based feedback
-            this.animateKeyPress(keyPressed, quality, false);
-
-            this.notesHit++;
-            this.currentStreak++;
-            if (this.currentStreak > this.longestStreak) {
-              this.longestStreak = this.currentStreak;
-              
-              // Check for Combo Master achievement (100x combo) during gameplay
-              if (this.longestStreak === 100 && !this.comboMasterUnlocked) {
-                const totalSongs = getAllSongs().length;
-                const gameData = {
-                  accuracy: 0,
-                  grade: '',
-                  difficulty: this.currentDifficulty,
-                  longestStreak: this.longestStreak,
-                  failed: false,
-                  song: this.currentSongId
-                };
-                const newlyUnlocked = checkAchievements(gameData, totalSongs);
-                if (newlyUnlocked.includes('combo_master')) {
-                  this.comboMasterUnlocked = true;
-                  this.showAchievementNotification('combo_master');
-                }
-              }
-            }
-            
-            // Track combo start
-            if (this.currentStreak === 1) {
-              this.currentComboStart = this.time.now;
-            }
-
-            // Update combo display
-            this.updateComboDisplay(this.currentStreak);
-            
-            this.score += multipliedScore;
-            this.updateScore(this.score);
-
-            // Return to pool instead of destroying
-            this.releaseNote(note);
-            this.fallingKeys.splice(i, 1);
-            break;
-          }
-        }
-      }
-      
-      // If no note was hit, still provide visual feedback (but smaller/miss style)
-      if (!noteHit) {
-        this.animateKeyPress(keyPressed, "miss", false);
-      }
+  protected handlePlayerInput(event: KeyboardEvent): void {
+    if (this.inputHandler) {
+      this.inputHandler.handlePlayerInput(event);
     }
   }
   
-  showAchievementNotification(achievementId: string): void {
-    const achievement = getAchievement(achievementId);
-    if (!achievement) return;
-    
-    const { width, height } = this.scale;
-    
-    // Create notification in top-right corner
-    const notificationX = width - getResponsiveSpacing(220, width);
-    const notificationY = getResponsiveSpacing(100, height);
-    
-    // Background
-    const bg = this.add.rectangle(
-      notificationX,
-      notificationY,
-      getResponsiveSpacing(400, width),
-      getResponsiveSpacing(100, height),
-      0x1a1a2e,
-      0.95
-    );
-    bg.setStrokeStyle(3, 0x00ff00);
-    bg.setDepth(1000);
-    
-    // Icon
-    const icon = this.add.text(
-      notificationX - getResponsiveSpacing(150, width),
-      notificationY,
-      achievement.icon,
-      {
-        fontSize: getResponsiveFontSize(40, width, 30, 50)
-      }
-    ).setOrigin(0.5).setDepth(1001);
-    
-    // Title
-    const title = this.add.text(
-      notificationX,
-      notificationY - getResponsiveSpacing(20, height),
-      "Achievement!",
-      {
-        fontSize: getResponsiveFontSize(18, width, 14, 22),
-        color: "#00ff00",
-        fontStyle: "bold",
-        fontFamily: "'Orbitron', 'Arial', sans-serif"
-      }
-    ).setOrigin(0.5).setDepth(1001);
-    
-    // Name
-    const name = this.add.text(
-      notificationX,
-      notificationY + getResponsiveSpacing(10, height),
-      achievement.name,
-      {
-        fontSize: getResponsiveFontSize(16, width, 12, 20),
-        color: "#ffffff",
-        fontStyle: "bold"
-      }
-    ).setOrigin(0.5).setDepth(1001);
-    
-    // Animate in
-    bg.setAlpha(0);
-    icon.setAlpha(0);
-    title.setAlpha(0);
-    name.setAlpha(0);
-    
-    this.tweens.add({
-      targets: [bg, icon, title, name],
-      alpha: 1,
-      x: `-=${getResponsiveSpacing(20, width)}`,
-      duration: 500,
-      ease: "Back.easeOut"
-    });
-    
-    // Animate out
-    this.tweens.add({
-      targets: [bg, icon, title, name],
-      alpha: 0,
-      x: `+=${getResponsiveSpacing(20, width)}`,
-      duration: 500,
-      delay: 3000,
-      ease: "Power2",
-      onComplete: () => {
-        bg.destroy();
-        icon.destroy();
-        title.destroy();
-        name.destroy();
-      }
-    });
+  protected showAchievementNotification(achievementId: string): void {
+    if (this.scoreManager) {
+      this.scoreManager.showAchievementNotification(achievementId);
+    }
   }
 
   /**
