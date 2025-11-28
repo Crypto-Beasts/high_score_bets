@@ -1,9 +1,9 @@
 import Phaser from "phaser";
-import { Socket } from "socket.io-client";
-import io from "socket.io-client";
+import { Client, Room } from "colyseus.js";
 import { getResponsiveTitleSize, getResponsiveButtonSize, getResponsiveSpacing, getResponsiveFontSize } from "../../utils/ui/responsive";
 import { getAllSongs } from "../../config/songs";
 import { DIFFICULTY_LEVELS, DifficultyLevel } from "../../utils/game/difficultyManager";
+import { GameRoomState } from "../../types/GameRoomState";
 
 interface RoomCreatedData {
   roomId: string;
@@ -29,7 +29,8 @@ interface ErrorData {
 }
 
 export default class MultiplayerLobbyScene extends Phaser.Scene {
-  private socket: Socket | null = null;
+  private client: Client | null = null;
+  private room: Room<GameRoomState> | null = null;
   private roomId: string | null = null;
   private serverUrl: string;
   private backgroundImage?: Phaser.GameObjects.Image;
@@ -47,7 +48,8 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
 
   constructor() {
     super({ key: "MultiplayerLobbyScene" });
-    this.serverUrl = import.meta.env?.VITE_SERVER_URL || "http://localhost:3000";
+    // Colyseus default port is 2567
+    this.serverUrl = import.meta.env?.VITE_SERVER_URL || "ws://localhost:2567";
   }
 
   create(): void {
@@ -165,14 +167,12 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
   
   private connectToServer(): void {
     try {
-      this.socket = io(this.serverUrl, {
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000
-      });
+      this.client = new Client(this.serverUrl);
       
-      this.setupSocketListeners();
+      if (this.statusText) {
+        this.statusText.setText("Connected");
+        this.statusText.setFill("#00ff00");
+      }
     } catch (error) {
       console.error("[MultiplayerLobby] Connection error:", error);
       if (this.statusText) {
@@ -182,66 +182,58 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
     }
   }
   
-  private setupSocketListeners(): void {
-    if (!this.socket) return;
-    
-    this.socket.on('connect', () => {
-      console.log("[MultiplayerLobby] Connected to server");
-      if (this.statusText) {
-        this.statusText.setText("Connected");
-        this.statusText.setFill("#00ff00");
-      }
-    });
-    
-    this.socket.on('disconnect', () => {
-      console.log("[MultiplayerLobby] Disconnected from server");
-      if (this.statusText) {
-        this.statusText.setText("Disconnected");
-        this.statusText.setFill("#ff0000");
-      }
-    });
-    
-    this.socket.on('connect_error', (error: Error) => {
-      console.error("[MultiplayerLobby] Connection error:", error);
-      if (this.statusText) {
-        this.statusText.setText("Connection failed. Server may be offline.");
-        this.statusText.setFill("#ff0000");
-      }
-    });
-    
-    this.socket.on('roomCreated', (data: RoomCreatedData) => {
-      this.roomId = data.roomId;
-      console.log("[MultiplayerLobby] Room created:", this.roomId);
-      this.showRoomCreated(data);
-    });
-    
-    this.socket.on('error', (data: ErrorData) => {
-      console.error("[MultiplayerLobby] Server error:", data.message);
-      this.showError(data.message);
-    });
-  }
-  
-  private showCreateRoomOptions(): void {
-    if (!this.socket || !this.socket.connected) {
+  private async showCreateRoomOptions(): Promise<void> {
+    if (!this.client) {
       this.showError("Not connected to server");
       return;
     }
     
-    // Simple song and difficulty selection
-    const songs = getAllSongs();
-    const defaultSong = songs[0]?.id || "Aguado_Menuet_Aminor";
-    const defaultDifficulty = DIFFICULTY_LEVELS.NORMAL;
-    
-    // For now, create room with defaults
-    // TODO: Add UI for song/difficulty selection
-    this.socket.emit('createRoom', {
-      song: defaultSong,
-      difficulty: defaultDifficulty
-    });
+    try {
+      // Simple song and difficulty selection
+      const songs = getAllSongs();
+      const defaultSong = songs[0]?.id || "Aguado_Menuet_Aminor";
+      const defaultDifficulty = DIFFICULTY_LEVELS.NORMAL;
+      
+      // Create or join room with Colyseus
+      this.room = await this.client.joinOrCreate<GameRoomState>("game_room", {
+        song: defaultSong,
+        difficulty: defaultDifficulty
+      });
+      
+      this.roomId = this.room.roomId;
+      console.log("[MultiplayerLobby] Room created/joined:", this.roomId);
+      
+      // Check initial state - if game already started, transition immediately
+      const initialState = this.room.state;
+      if (initialState.status === "starting" || initialState.status === "playing") {
+        // Game already started - server has verified 2 players, transition immediately
+        const player = Array.from(initialState.players.values()).find(p => p.sessionId === this.room?.sessionId);
+        const isHost = player && Array.from(initialState.players.values())[0]?.sessionId === this.room?.sessionId;
+        
+        this.scene.start("MultiplayerGameScene", {
+          roomId: this.roomId,
+          room: this.room, // Pass existing room connection
+          isHost: isHost || false,
+          song: initialState.song,
+          difficulty: initialState.difficulty as DifficultyLevel,
+          startTime: initialState.startTime
+        });
+        return;
+      }
+      
+      // Setup room listeners
+      this.setupRoomListeners();
+      
+      // Show room created UI
+      this.showRoomCreated({ roomId: this.roomId });
+    } catch (error) {
+      console.error("[MultiplayerLobby] Error creating room:", error);
+      this.showError("Failed to create room");
+    }
   }
   
-  private showJoinRoomInput(): void {
-    if (!this.socket || !this.socket.connected) {
+  private async showJoinRoomInput(): Promise<void> {
+    if (!this.client) {
       this.showError("Not connected to server");
       return;
     }
@@ -250,23 +242,81 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
     // TODO: Replace with proper UI input
     const roomId = prompt("Enter Room ID:");
     if (roomId && roomId.trim()) {
-      this.socket.emit('joinRoom', roomId.trim());
+      try {
+        this.room = await this.client.joinById<GameRoomState>(roomId.trim());
+        this.roomId = this.room.roomId;
+        
+        // Check initial state immediately (in case game already started)
+        if (this.room.state.status === "starting" || this.room.state.status === "playing") {
+          const player = Array.from(this.room.state.players.values()).find(p => p.sessionId === this.room?.sessionId);
+          const isHost = player && Array.from(this.room.state.players.values())[0]?.sessionId === this.room?.sessionId;
+          
+          this.scene.start("MultiplayerGameScene", {
+            roomId: this.roomId,
+            isHost: isHost || false,
+            song: this.room.state.song,
+            difficulty: this.room.state.difficulty as DifficultyLevel,
+            startTime: this.room.state.startTime
+          });
+          return;
+        }
+        
+        // Setup room listeners for future state changes
+        this.setupRoomListeners();
+      } catch (error) {
+        console.error("[MultiplayerLobby] Error joining room:", error);
+        this.showError("Failed to join room. Room may not exist.");
+      }
+    }
+  }
+  
+  private setupRoomListeners(): void {
+    if (!this.room) return;
+    
+    // Track if we've already handled the initial state to prevent immediate transitions
+    let initialStateHandled = false;
+    
+    // Listen for state changes (only for host who created room)
+    this.room.onStateChange((state) => {
+      // Skip the first state change (initial state) - we handle it separately
+      if (!initialStateHandled) {
+        initialStateHandled = true;
+        console.log("[MultiplayerLobby] Initial state received, player count:", Object.keys(state.players || {}).length);
+        return; // Don't transition on initial state
+      }
       
-      // Listen for join confirmation
-      this.socket.once('playerJoined', (data: PlayerJoinedData) => {
-        this.roomId = roomId.trim();
+      // Handle room state changes (status, players, etc.)
+      // Trust the server: if status is "starting" or "playing", server has verified 2 players
+      // Don't count players from state.players (includes disconnected players kept for reconnection)
+      console.log(`[MultiplayerLobby] State change: status=${state.status}`);
+      
+      if (this.scene.isActive() && (state.status === "starting" || state.status === "playing")) {
+        console.log("[MultiplayerLobby] Transitioning to game - server confirmed game starting");
+        const player = Array.from(state.players.values()).find(p => p.sessionId === this.room?.sessionId);
+        const isHost = player && Array.from(state.players.values())[0]?.sessionId === this.room?.sessionId;
+        
+        // Pass the room object so MultiplayerGameScene can reuse it
         this.scene.start("MultiplayerGameScene", {
           roomId: this.roomId,
-          isHost: false,
-          song: data.song || "Aguado_Menuet_Aminor",
-          difficulty: (data.difficulty as DifficultyLevel) || DIFFICULTY_LEVELS.NORMAL
+          room: this.room, // Pass existing room connection
+          isHost: isHost || false,
+          song: state.song,
+          difficulty: state.difficulty as DifficultyLevel,
+          startTime: state.startTime
         });
-      });
-      
-      this.socket.once('error', (data: ErrorData) => {
-        this.showError(data.message || "Failed to join room");
-      });
-    }
+      }
+    });
+    
+    // Listen for errors
+    this.room.onError((code, message) => {
+      console.error("[MultiplayerLobby] Room error:", code, message);
+      this.showError(message || "Room error occurred");
+    });
+    
+    // Listen for leave
+    this.room.onLeave((code) => {
+      console.log("[MultiplayerLobby] Left room:", code);
+    });
   }
   
   private showRoomCreated(data: RoomCreatedData): void {
@@ -326,18 +376,7 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
       color: "#ffff00"
     }).setOrigin(0.5);
     
-    // Listen for game start
-    if (this.socket) {
-      this.socket.on('gameStarting', (data: GameStartingData) => {
-        this.scene.start("MultiplayerGameScene", {
-          roomId: this.roomId,
-          isHost: true,
-          song: data.song,
-          difficulty: data.difficulty as DifficultyLevel,
-          startTime: data.startTime
-        });
-      });
-    }
+    // Game start is handled by setupRoomListeners via state change
   }
   
   private showError(message: string): void {
@@ -362,9 +401,9 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
   }
   
   private disconnectSocket(): void {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
+    if (this.room) {
+      this.room.leave();
+      this.room = null;
     }
   }
   
@@ -391,17 +430,28 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
       this.backgroundRect.setSize(resizeWidth, resizeHeight);
     }
     
+    // Helper function to safely set font size on text objects
+    const safeSetFontSize = (text: Phaser.GameObjects.Text | null | undefined, fontSize: number): void => {
+      if (text && text.active && text.scene && (text as any).texture) {
+        try {
+          text.setFontSize(fontSize);
+        } catch (error) {
+          console.warn('[MultiplayerLobbyScene] Error setting font size:', error);
+        }
+      }
+    };
+    
     // Update title
     if (this.titleText) {
       const titleSize = getResponsiveTitleSize(resizeWidth);
       this.titleText.setPosition(resizeWidth / 2, resizeHeight / 6);
-      this.titleText.setFontSize(titleSize);
+      safeSetFontSize(this.titleText, titleSize);
     }
     
     // Update status text
     if (this.statusText) {
       this.statusText.setPosition(resizeWidth / 2, resizeHeight / 6 + getResponsiveSpacing(60, resizeHeight));
-      this.statusText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.statusText, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
     
     // Update buttons
@@ -411,45 +461,45 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
     
     if (this.createButton) {
       this.createButton.setPosition(resizeWidth / 2, buttonY);
-      this.createButton.setFontSize(buttonSize.fontSize);
+      safeSetFontSize(this.createButton, buttonSize.fontSize);
       // Padding is set in style, will be recalculated with new fontSize
     }
     
     if (this.joinButton) {
       this.joinButton.setPosition(resizeWidth / 2, buttonY + buttonSpacing);
-      this.joinButton.setFontSize(buttonSize.fontSize);
+      safeSetFontSize(this.joinButton, buttonSize.fontSize);
     }
     
     if (this.backButton) {
       this.backButton.setPosition(resizeWidth / 2, buttonY + buttonSpacing * 2);
-      this.backButton.setFontSize(buttonSize.fontSize);
+      safeSetFontSize(this.backButton, buttonSize.fontSize);
     }
     
     // Update room info (if visible)
     if (this.roomInfoText) {
       this.roomInfoText.setPosition(resizeWidth / 2, resizeHeight / 2 - getResponsiveSpacing(60, resizeHeight));
-      this.roomInfoText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+      safeSetFontSize(this.roomInfoText, getResponsiveFontSize(32, resizeWidth, 24, 40));
     }
     
     if (this.roomIdText) {
       this.roomIdText.setPosition(resizeWidth / 2, resizeHeight / 2);
-      this.roomIdText.setFontSize(getResponsiveFontSize(24, resizeWidth, 18, 30));
+      safeSetFontSize(this.roomIdText, getResponsiveFontSize(24, resizeWidth, 18, 30));
     }
     
     if (this.copyButton) {
       this.copyButton.setPosition(resizeWidth / 2, resizeHeight / 2 + getResponsiveSpacing(50, resizeHeight));
-      this.copyButton.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.copyButton, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
     
     if (this.waitingText) {
       this.waitingText.setPosition(resizeWidth / 2, resizeHeight / 2 + getResponsiveSpacing(100, resizeHeight));
-      this.waitingText.setFontSize(getResponsiveFontSize(20, resizeWidth, 16, 24));
+      safeSetFontSize(this.waitingText, getResponsiveFontSize(20, resizeWidth, 16, 24));
     }
     
     // Update error text
     if (this.errorText) {
       this.errorText.setPosition(resizeWidth / 2, resizeHeight - getResponsiveSpacing(100, resizeHeight));
-      this.errorText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.errorText, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
   }
   

@@ -14,9 +14,11 @@
     "outDir": "./dist",
     "rootDir": ".",
     "declaration": false,
-    "sourceMap": true
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
-  "include": ["server.ts"],
+  "include": ["*.ts", "rooms/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
 
