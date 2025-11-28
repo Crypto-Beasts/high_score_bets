@@ -1,13 +1,14 @@
 import Phaser from "phaser";
-import { Socket } from "socket.io-client";
-import io from "socket.io-client";
+import { Client, Room } from "colyseus.js";
 import GameScene from "./GameScene";
 import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
 import { OpponentReplaySystem } from "./OpponentReplaySystem";
 import { DifficultyLevel } from "../../utils/game/difficultyManager";
+import { GameRoomState } from "../../types/GameRoomState";
 
 interface MultiplayerGameData {
   roomId?: string;
+  room?: Room<GameRoomState>; // Existing room connection from lobby
   isHost?: boolean;
   startTime?: number;
   song?: string;
@@ -53,7 +54,8 @@ interface ErrorData {
  * Keeps all single-player functionality intact
  */
 export default class MultiplayerGameScene extends GameScene {
-  protected socket: Socket | null = null;
+  protected client: Client | null = null;
+  protected room: Room<GameRoomState> | null = null;
   protected roomId: string | null = null;
   protected isHost: boolean = false;
   protected serverUrl: string;
@@ -70,6 +72,7 @@ export default class MultiplayerGameScene extends GameScene {
   protected gameEndHandled: boolean = false;
   protected gameEndSent: boolean = false;
   protected lastScoreUpdate: number = 0;
+  protected lastOpponentCheck: number = 0;
   
   // Spectator view
   protected opponentReplay: OpponentReplaySystem | null = null;
@@ -113,22 +116,34 @@ export default class MultiplayerGameScene extends GameScene {
       this.sys.settings.key = "MultiplayerGameScene";
     }
     
-    this.serverUrl = import.meta.env?.VITE_SERVER_URL || "http://localhost:3000";
+    // Colyseus default port is 2567
+    this.serverUrl = import.meta.env?.VITE_SERVER_URL || "ws://localhost:2567";
     this.showSpectatorView = this.loadSpectatorViewPreference();
   }
 
   init(data?: MultiplayerGameData): void {
     // Store multiplayer data
     this.roomId = data?.roomId || null;
+    this.room = data?.room || null; // Reuse existing room connection if provided
     this.isHost = data?.isHost || false;
     this.gameStartTime = data?.startTime || null;
     this.multiplayerSong = data?.song;
     this.multiplayerDifficulty = data?.difficulty as DifficultyLevel | undefined;
+    
+    // If we have a room, extract client from it
+    if (this.room && !this.client) {
+      // Get client from room (Colyseus room has a connection property)
+      // Note: Colyseus room doesn't expose client directly, but we can work with the room
+      console.log("[MultiplayerGameScene] Reusing existing room connection from lobby");
+    }
   }
 
   create(data?: MultiplayerGameData): void {
-    // Connect to server first
-    this.connectToServer();
+    // Connect to server and join room (async, but don't await - let it happen in background)
+    this.connectToServer().catch((error) => {
+      console.error("[MultiplayerGameScene] Failed to connect:", error);
+      this.showMultiplayerError("Failed to connect to server");
+    });
     
     // Call parent create to initialize game first
     super.create({
@@ -166,13 +181,6 @@ export default class MultiplayerGameScene extends GameScene {
       this.comboMultiplierText.setVisible(false);
     }
     
-    // Socket listeners are already set up in connectToServer()
-    // But if socket was already connected, set them up here as well
-    if (this.socket && this.socket.connected) {
-      // Listeners might already be set up, but ensure gameStarting is handled
-      // (This is a safety check in case setupSocketListeners was called before socket connected)
-    }
-    
     // Setup spectator view toggle button
     this.setupSpectatorToggle();
     
@@ -183,30 +191,56 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Wait for synchronization before starting
     // If gameStartTime was passed in init (host), wait immediately
-    // If not (joining player), wait for gameStarting event
+    // If not (joining player), wait for state change
     if (this.gameStartTime) {
       this.waitForSynchronizedStart();
     }
   }
   
-  protected connectToServer(): void {
+  protected async connectToServer(): Promise<void> {
     try {
-      // Reuse socket from lobby if available, or create new one
-      // For now, create new connection
-      this.socket = io(this.serverUrl, {
-        transports: ['websocket'],
-        reconnection: true
-      });
+      // If we already have a room connection from init (passed from lobby), reuse it
+      if (this.room) {
+        console.log("[MultiplayerGameScene] Reusing existing room connection:", this.room.roomId);
+        // Room is already connected, just setup listeners
+      } else if (this.roomId) {
+        // Otherwise, create new connection (for reconnection scenarios)
+        this.client = new Client(this.serverUrl);
+        this.room = await this.client.joinById<GameRoomState>(this.roomId);
+        console.log("[MultiplayerGameScene] Joined room:", this.roomId);
+      } else {
+        console.error("[MultiplayerGameScene] No roomId or room provided");
+        this.showMultiplayerError("No room ID provided");
+        return;
+      }
       
-      // Set up socket listeners BEFORE joining room (so we don't miss gameStarting event)
-      this.setupSocketListeners();
+      // Setup room listeners
+      this.setupRoomListeners();
       
-      // If we have a roomId, join it
-      if (this.roomId) {
-        this.socket.emit('joinRoom', this.roomId);
+      // Check initial state immediately (in case game already started)
+      const initialState = this.room.state;
+      if (initialState.status === "starting" || initialState.status === "playing") {
+        this.gameStartTime = initialState.startTime;
+        this.waitForSynchronizedStart();
+      }
+      
+      // Also check for opponent in initial state
+      const initialOpponent = this.getOpponentFromState(initialState);
+      if (initialOpponent) {
+        this.opponentScore = initialOpponent.score || 0;
+        this.opponentCombo = initialOpponent.combo || 0;
+        if (initialOpponent.finished) {
+          this.opponentFinished = true;
+          this.opponentScore = initialOpponent.finalScore || initialOpponent.score || 0;
+          this.opponentTotalNotes = initialOpponent.totalNotes || 0;
+          this.opponentNotesHit = initialOpponent.notesHit || 0;
+          this.opponentLongestStreak = initialOpponent.longestStreak || 0;
+        }
+        this.updateMultiplayerScores();
       }
     } catch (error) {
       console.error("[MultiplayerGameScene] Connection error:", error);
+      this.showMultiplayerError("Failed to connect to server");
     }
   }
   
@@ -346,92 +380,160 @@ export default class MultiplayerGameScene extends GameScene {
     ).setDepth(102);
   }
   
-  protected setupSocketListeners(): void {
-    if (!this.socket) return;
+  protected setupRoomListeners(): void {
+    if (!this.room) return;
     
-    this.socket.on('connect', () => {
-      console.log("[MultiplayerGameScene] Connected to server");
-      if (this.connectionStatus) {
-        this.connectionStatus.setFillStyle(0x00ff00);
+    // Connection status
+    if (this.connectionStatus) {
+      this.connectionStatus.setFillStyle(0x00ff00);
+    }
+    
+    // Listen for state changes (scores, combos, status, etc.)
+    this.room.onStateChange((state) => {
+      // Update opponent score from state
+      const opponent = this.getOpponentFromState(state);
+      if (opponent) {
+        const oldScore = this.opponentScore;
+        const oldCombo = this.opponentCombo;
+        this.opponentScore = opponent.score || 0;
+        this.opponentCombo = opponent.combo || 0;
+        
+        // Log if score changed
+        if (oldScore !== this.opponentScore || oldCombo !== this.opponentCombo) {
+          console.log(`[MultiplayerGameScene] onStateChange: opponent score=${this.opponentScore}, combo=${this.opponentCombo}`);
+        }
+        
+        // Check if opponent finished
+        if (opponent.finished && !this.opponentFinished) {
+          this.opponentFinished = true;
+          this.opponentScore = opponent.finalScore || opponent.score || 0;
+          this.opponentTotalNotes = opponent.totalNotes || 0;
+          this.opponentNotesHit = opponent.notesHit || 0;
+          this.opponentLongestStreak = opponent.longestStreak || 0;
+          
+          this.updateMultiplayerScores();
+          this.showOpponentFinished({
+            finalScore: this.opponentScore,
+            totalNotes: this.opponentTotalNotes,
+            notesHit: this.opponentNotesHit,
+            longestStreak: this.opponentLongestStreak
+          });
+          
+          // If we already finished, transition to debrief now
+          if (this.gameEndHandled) {
+            console.log(`[MultiplayerGameScene] We already finished, transitioning to debrief now`);
+            this.transitionToDebrief();
+          }
+        } else {
+          this.updateOpponentDisplay();
+        }
       }
-    });
-    
-    this.socket.on('disconnect', () => {
-      console.log("[MultiplayerGameScene] Disconnected from server");
-      if (this.connectionStatus) {
-        this.connectionStatus.setFillStyle(0xff0000);
-      }
-    });
-    
-    this.socket.on('connect_error', (error: Error) => {
-      console.error("[MultiplayerGameScene] Connection error:", error);
-      if (this.connectionStatus) {
-        this.connectionStatus.setFillStyle(0xff0000);
-      }
-    });
-    
-    // Opponent score update
-    this.socket.on('opponentScore', (data: OpponentScoreData) => {
-      this.opponentScore = data.score || 0;
-      this.opponentCombo = data.combo || 0;
-      this.updateOpponentDisplay();
       
-      // Update replay system if active
-      if (this.opponentReplay) {
-        this.opponentReplay.updateScore(this.opponentScore, this.opponentCombo);
+      // Handle game starting
+      if (state.status === "starting" && !this.synchronizedStart) {
+        console.log("[MultiplayerGameScene] Game starting signal received");
+        this.gameStartTime = state.startTime;
+        this.waitForSynchronizedStart();
       }
     });
     
-    // Opponent input event (for spectator view)
-    this.socket.on('opponentInput', (data: OpponentInputData) => {
+    // Listen for opponent input messages (for spectator view)
+    this.room.onMessage("opponentInput", (data: OpponentInputData) => {
       if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
         this.opponentReplay.handleOpponentInput(data);
       }
     });
     
-    // Opponent finished
-    this.socket.on('opponentFinished', (data: OpponentFinishedData) => {
-      console.log(`[MultiplayerGameScene] Received opponentFinished:`, data);
-      this.opponentFinished = true;
-      // Store opponent's final stats - use finalScore if provided, otherwise keep current score
-      if (data.finalScore !== undefined && data.finalScore !== null) {
-        this.opponentScore = data.finalScore;
-        console.log(`[MultiplayerGameScene] Updated opponentScore to final score: ${this.opponentScore}`);
-      }
-      this.opponentTotalNotes = data.totalNotes || 0;
-      this.opponentNotesHit = data.notesHit || 0;
-      this.opponentLongestStreak = data.longestStreak || 0;
-      
-      // Update the display with final score
-      this.updateMultiplayerScores();
-      this.showOpponentFinished(data);
-      
-      // If we already finished, transition to debrief now
-      if (this.gameEndHandled) {
-        console.log(`[MultiplayerGameScene] We already finished, transitioning to debrief now`);
-        this.transitionToDebrief();
-      } else {
-        console.log(`[MultiplayerGameScene] We haven't finished yet, waiting for our game to end`);
+    // Listen for opponent finished message (backup to state change)
+    this.room.onMessage("opponentFinished", (data: OpponentFinishedData) => {
+      console.log(`[MultiplayerGameScene] Received opponentFinished message:`, data);
+      if (!this.opponentFinished) {
+        this.opponentFinished = true;
+        if (data.finalScore !== undefined && data.finalScore !== null) {
+          this.opponentScore = data.finalScore;
+        }
+        this.opponentTotalNotes = data.totalNotes || 0;
+        this.opponentNotesHit = data.notesHit || 0;
+        this.opponentLongestStreak = data.longestStreak || 0;
+        
+        this.updateMultiplayerScores();
+        this.showOpponentFinished(data);
+        
+        // If we already finished, transition to debrief now
+        if (this.gameEndHandled) {
+          console.log(`[MultiplayerGameScene] We already finished, transitioning to debrief now`);
+          this.transitionToDebrief();
+        }
       }
     });
     
-    // Game starting (synchronization)
-    this.socket.on('gameStarting', (data: GameStartingData) => {
-      console.log("[MultiplayerGameScene] Game starting signal received");
-      this.gameStartTime = data.startTime;
-      this.waitForSynchronizedStart();
+    // Listen for match complete
+    this.room.onMessage("matchComplete", (data: any) => {
+      console.log("[MultiplayerGameScene] Match complete:", data);
     });
     
-    // Player joined (for host)
-    this.socket.on('playerJoined', (data: any) => {
-      console.log("[MultiplayerGameScene] Player joined:", data);
+    // Listen for errors
+    this.room.onError((code, message) => {
+      console.error("[MultiplayerGameScene] Room error:", code, message);
+      this.showMultiplayerError(message || "Room error occurred");
+      if (this.connectionStatus) {
+        this.connectionStatus.setFillStyle(0xff0000);
+      }
     });
     
-    // Error handling
-    this.socket.on('error', (data: ErrorData) => {
-      console.error("[MultiplayerGameScene] Server error:", data.message);
-      this.showMultiplayerError(data.message);
+    // Listen for leave
+    this.room.onLeave((code) => {
+      console.log("[MultiplayerGameScene] Left room:", code);
+      if (this.connectionStatus) {
+        this.connectionStatus.setFillStyle(0xff0000);
+      }
     });
+    
+    // Listen for changes to players map
+    // When players are added, update opponent display
+    this.room.state.players.onAdd((player, sessionId) => {
+      console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
+      // Initial update for new players
+      if (player.sessionId !== this.room?.sessionId) {
+        this.opponentScore = player.score || 0;
+        this.opponentCombo = player.combo || 0;
+        this.updateMultiplayerScores();
+      }
+    });
+    
+    // Listen for changes to players in the map (fires when player data changes)
+    // Note: onChange on MapSchema fires when items are modified, but may not fire for nested field changes
+    this.room.state.players.onChange((player, sessionId) => {
+      console.log(`[MultiplayerGameScene] Player changed in map: ${sessionId}, score=${player.score}, combo=${player.combo}`);
+      if (player.sessionId !== this.room?.sessionId) {
+        const newScore = player.score || 0;
+        const newCombo = player.combo || 0;
+        if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
+          console.log(`[MultiplayerGameScene] onChange: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
+          this.opponentScore = newScore;
+          this.opponentCombo = newCombo;
+          this.updateMultiplayerScores();
+        }
+      }
+    });
+    
+    // Also check existing players on setup
+    this.room.state.players.forEach((player, sessionId) => {
+      if (player.sessionId !== this.room?.sessionId) {
+        this.opponentScore = player.score || 0;
+        this.opponentCombo = player.combo || 0;
+        this.updateMultiplayerScores();
+      }
+    });
+  }
+  
+  protected getOpponentFromState(state: GameRoomState): GameRoomState["players"][string] | null {
+    if (!this.room) return null;
+    
+    const mySessionId = this.room.sessionId;
+    const players = Object.values(state.players);
+    const opponent = players.find(p => p.sessionId !== mySessionId);
+    return opponent || null;
   }
   
   protected waitForSynchronizedStart(): void {
@@ -575,15 +677,20 @@ export default class MultiplayerGameScene extends GameScene {
     this.updateMultiplayerScores();
     
     // Send score update to server (throttled to avoid spam)
-    if (this.socket && this.socket.connected && this.synchronizedStart) {
+    if (this.room && this.room.connection.isOpen && this.synchronizedStart) {
       // Only send updates every 100ms to reduce network traffic
       if (!this.lastScoreUpdate || (Date.now() - this.lastScoreUpdate) > 100) {
-        this.socket.emit('scoreUpdate', {
+        console.log(`[MultiplayerGameScene] Sending scoreUpdate: score=${this.score}, combo=${this.currentStreak}`);
+        this.room.send('scoreUpdate', {
           score: this.score,
           combo: this.currentStreak
         });
         this.lastScoreUpdate = Date.now();
       }
+    } else {
+      if (!this.room) console.warn(`[MultiplayerGameScene] Cannot send score: no room`);
+      if (this.room && !this.room.connection.isOpen) console.warn(`[MultiplayerGameScene] Cannot send score: connection not open`);
+      if (!this.synchronizedStart) console.warn(`[MultiplayerGameScene] Cannot send score: not synchronized yet`);
     }
   }
   
@@ -898,14 +1005,14 @@ export default class MultiplayerGameScene extends GameScene {
     }
     
     // Send input event to server for opponent's spectator view (only if enabled)
-    if (this.showSpectatorView && this.socket && this.socket.connected && this.synchronizedStart) {
+    if (this.showSpectatorView && this.room && this.room.connection.isOpen && this.synchronizedStart) {
       // Only send if it's a valid game key
       if (['W', 'A', 'S', 'D'].includes(keyPressed)) {
         // Throttle input updates (every 50ms)
         if (!this.lastInputUpdate || (Date.now() - this.lastInputUpdate) > 50) {
           const currentTime = this.music ? ((this.music as any).currentTime || 0) : 0;
           
-          this.socket.emit('playerInput', {
+          this.room.send('playerInput', {
             key: keyPressed,
             timestamp: Date.now(),
             gameTime: currentTime,
@@ -923,6 +1030,40 @@ export default class MultiplayerGameScene extends GameScene {
     // Only update if synchronized start has occurred (or single player mode)
     if (!this.roomId || this.synchronizedStart) {
       super.update(time, delta);
+      
+      // Periodically check for opponent score updates (fallback if onStateChange/onChange don't fire)
+      // Check every 50ms during gameplay for very responsive updates
+      if (this.room && this.synchronizedStart) {
+        const now = Date.now();
+        const shouldCheck = !this.lastOpponentCheck || (now - this.lastOpponentCheck) >= 50;
+        
+        if (shouldCheck) {
+          // Get all players from state
+          const allPlayers = Array.from(this.room.state.players.values()) as any[];
+          const mySessionId = this.room.sessionId;
+          const opponent = allPlayers.find((p: any) => p.sessionId !== mySessionId);
+          
+          if (opponent) {
+            const newScore = (opponent.score || 0) as number;
+            const newCombo = (opponent.combo || 0) as number;
+            
+            // Always update, even if values are the same (to ensure UI is in sync)
+            // But only log when values actually change
+            if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
+              console.log(`[MultiplayerGameScene] Periodic check: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
+              this.opponentScore = newScore;
+              this.opponentCombo = newCombo;
+              this.updateMultiplayerScores();
+            }
+          } else {
+            // Only log warning occasionally to avoid spam
+            if (!this.lastOpponentCheck || (now - this.lastOpponentCheck) > 1000) {
+              console.warn(`[MultiplayerGameScene] Periodic check: opponent not found. My sessionId: ${mySessionId}, All players:`, allPlayers.map((p: any) => ({ id: p.sessionId, score: p.score, combo: p.combo })));
+            }
+          }
+          this.lastOpponentCheck = now;
+        }
+      }
       
       // Update opponent replay system (only if spectator view is enabled)
       if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
@@ -1032,7 +1173,7 @@ export default class MultiplayerGameScene extends GameScene {
     this.gameEndHandled = true;
     
     // Send game end to server
-    if (this.socket && this.socket.connected && !this.gameEndSent) {
+    if (this.room && this.room.connection.isOpen && !this.gameEndSent) {
       const percentageHit = this.totalNotes > 0 ? (this.notesHit / this.totalNotes) * 100 : 0;
       
       console.log(`[MultiplayerGameScene] Sending gameEnd to server:`, {
@@ -1043,7 +1184,7 @@ export default class MultiplayerGameScene extends GameScene {
         longestStreak: this.longestStreak
       });
       
-      this.socket.emit('gameEnd', {
+      this.room.send('gameEnd', {
         score: this.score,
         accuracy: percentageHit,
         totalNotes: this.totalNotes,
@@ -1053,8 +1194,8 @@ export default class MultiplayerGameScene extends GameScene {
       this.gameEndSent = true;
     } else {
       console.log(`[MultiplayerGameScene] Cannot send gameEnd:`, {
-        hasSocket: !!this.socket,
-        connected: this.socket?.connected,
+        hasRoom: !!this.room,
+        isOpen: this.room?.connection.isOpen,
         gameEndSent: this.gameEndSent
       });
     }
@@ -1171,6 +1312,21 @@ export default class MultiplayerGameScene extends GameScene {
       resizeHeight = height || window.innerHeight || 1080;
     }
     
+    // Helper function to safely set font size on text objects
+    const safeSetFontSize = (text: Phaser.GameObjects.Text | null | undefined, fontSize: number | string): void => {
+      if (text && text.active && text.scene && (text as any).texture) {
+        try {
+          // Ensure fontSize is a number
+          const size = typeof fontSize === 'string' ? parseFloat(fontSize) : fontSize;
+          if (!isNaN(size) && size > 0) {
+            text.setFontSize(size);
+          }
+        } catch (error) {
+          console.warn('[MultiplayerGameScene] Error setting font size:', error);
+        }
+      }
+    };
+    
     // Update multiplayer UI panel
     if (this.multiplayerPanel) {
       const panelY = getResponsiveSpacing(10, resizeHeight);
@@ -1188,35 +1344,35 @@ export default class MultiplayerGameScene extends GameScene {
     // Your score elements
     if (this.yourLabelText) {
       this.yourLabelText.setPosition(leftX, labelY);
-      this.yourLabelText.setFontSize(getResponsiveFontSize(16, resizeWidth, 12, 20));
+      safeSetFontSize(this.yourLabelText, getResponsiveFontSize(16, resizeWidth, 12, 20));
     }
     if (this.yourScoreText) {
       this.yourScoreText.setPosition(leftX, labelY + getResponsiveSpacing(25, resizeHeight));
-      this.yourScoreText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+      safeSetFontSize(this.yourScoreText, getResponsiveFontSize(32, resizeWidth, 24, 40));
     }
     if (this.yourComboText) {
       this.yourComboText.setPosition(leftX, labelY + getResponsiveSpacing(60, resizeHeight));
-      this.yourComboText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.yourComboText, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
     
     // Opponent score elements
     if (this.opponentLabelText) {
       this.opponentLabelText.setPosition(rightX, labelY);
-      this.opponentLabelText.setFontSize(getResponsiveFontSize(16, resizeWidth, 12, 20));
+      safeSetFontSize(this.opponentLabelText, getResponsiveFontSize(16, resizeWidth, 12, 20));
     }
     if (this.opponentScoreText) {
       this.opponentScoreText.setPosition(rightX, labelY + getResponsiveSpacing(25, resizeHeight));
-      this.opponentScoreText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+      safeSetFontSize(this.opponentScoreText, getResponsiveFontSize(32, resizeWidth, 24, 40));
     }
     if (this.opponentComboText) {
       this.opponentComboText.setPosition(rightX, labelY + getResponsiveSpacing(60, resizeHeight));
-      this.opponentComboText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.opponentComboText, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
     
     // Score difference text
     if (this.scoreDiffText) {
       this.scoreDiffText.setPosition(resizeWidth / 2, labelY + getResponsiveSpacing(25, resizeHeight));
-      this.scoreDiffText.setFontSize(getResponsiveFontSize(20, resizeWidth, 16, 24));
+      safeSetFontSize(this.scoreDiffText, getResponsiveFontSize(20, resizeWidth, 16, 24));
     }
     
     // Score bars
@@ -1261,13 +1417,13 @@ export default class MultiplayerGameScene extends GameScene {
       const buttonX = resizeWidth - getResponsiveSpacing(100, resizeWidth);
       const buttonY = getResponsiveSpacing(100, resizeHeight);
       this.spectatorToggleText.setPosition(buttonX, buttonY);
-      this.spectatorToggleText.setFontSize(getResponsiveFontSize(14, resizeWidth, 12, 18));
+      safeSetFontSize(this.spectatorToggleText, getResponsiveFontSize(14, resizeWidth, 12, 18));
     }
     
     // Countdown text
     if (this.countdownText) {
       this.countdownText.setPosition(resizeWidth / 2, resizeHeight / 2);
-      this.countdownText.setFontSize(getResponsiveFontSize(120, resizeWidth, 80, 160));
+      safeSetFontSize(this.countdownText, getResponsiveFontSize(120, resizeWidth, 80, 160));
     }
     
     // Opponent finished text
@@ -1276,7 +1432,7 @@ export default class MultiplayerGameScene extends GameScene {
         resizeWidth / 2,
         resizeHeight / 2 - getResponsiveSpacing(100, resizeHeight)
       );
-      this.opponentFinishedText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+      safeSetFontSize(this.opponentFinishedText, getResponsiveFontSize(32, resizeWidth, 24, 40));
     }
     
     // Error text
@@ -1285,13 +1441,13 @@ export default class MultiplayerGameScene extends GameScene {
         resizeWidth / 2,
         resizeHeight - getResponsiveSpacing(100, resizeHeight)
       );
-      this.errorText.setFontSize(getResponsiveFontSize(18, resizeWidth, 14, 22));
+      safeSetFontSize(this.errorText, getResponsiveFontSize(18, resizeWidth, 14, 22));
     }
     
     // Waiting text
     if (this.waitingText) {
       this.waitingText.setPosition(resizeWidth / 2, resizeHeight / 2);
-      this.waitingText.setFontSize(getResponsiveFontSize(32, resizeWidth, 24, 40));
+      safeSetFontSize(this.waitingText, getResponsiveFontSize(32, resizeWidth, 24, 40));
     }
   }
   
@@ -1308,10 +1464,10 @@ export default class MultiplayerGameScene extends GameScene {
     }
     
     // Send game end if not already sent
-    if (this.socket && this.socket.connected && !this.gameEndSent) {
+    if (this.room && this.room.connection.isOpen && !this.gameEndSent) {
       const percentageHit = this.totalNotes > 0 ? (this.notesHit / this.totalNotes) * 100 : 0;
       
-      this.socket.emit('gameEnd', {
+      this.room.send('gameEnd', {
         score: this.score,
         accuracy: percentageHit,
         totalNotes: this.totalNotes,
@@ -1319,6 +1475,12 @@ export default class MultiplayerGameScene extends GameScene {
         longestStreak: this.longestStreak
       });
       this.gameEndSent = true;
+    }
+    
+    // Leave room
+    if (this.room) {
+      this.room.leave();
+      this.room = null;
     }
     
     // Disconnect socket (but don't disconnect if we're transitioning to debrief)
