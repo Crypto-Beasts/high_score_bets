@@ -491,40 +491,48 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Listen for changes to players map
     // When players are added, update opponent display
-    this.room.state.players.onAdd((player, sessionId) => {
-      console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
-      // Initial update for new players
-      if (player.sessionId !== this.room?.sessionId) {
-        this.opponentScore = player.score || 0;
-        this.opponentCombo = player.combo || 0;
-        this.updateMultiplayerScores();
-      }
-    });
+    // Cast to any to access MapSchema methods (onAdd, onChange, forEach)
+    const playersMap = this.room.state.players as any;
+    if (playersMap.onAdd) {
+      playersMap.onAdd((player: any, sessionId: string) => {
+        console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
+        // Initial update for new players
+        if (player.sessionId !== this.room?.sessionId) {
+          this.opponentScore = player.score || 0;
+          this.opponentCombo = player.combo || 0;
+          this.updateMultiplayerScores();
+        }
+      });
+    }
     
     // Listen for changes to players in the map (fires when player data changes)
     // Note: onChange on MapSchema fires when items are modified, but may not fire for nested field changes
-    this.room.state.players.onChange((player, sessionId) => {
-      console.log(`[MultiplayerGameScene] Player changed in map: ${sessionId}, score=${player.score}, combo=${player.combo}`);
-      if (player.sessionId !== this.room?.sessionId) {
-        const newScore = player.score || 0;
-        const newCombo = player.combo || 0;
-        if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
-          console.log(`[MultiplayerGameScene] onChange: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
-          this.opponentScore = newScore;
-          this.opponentCombo = newCombo;
-          this.updateMultiplayerScores();
+    if (playersMap.onChange) {
+      playersMap.onChange((player: any, sessionId: string) => {
+        console.log(`[MultiplayerGameScene] Player changed in map: ${sessionId}, score=${player.score}, combo=${player.combo}`);
+        if (player.sessionId !== this.room?.sessionId) {
+          const newScore = player.score || 0;
+          const newCombo = player.combo || 0;
+          if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
+            console.log(`[MultiplayerGameScene] onChange: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
+            this.opponentScore = newScore;
+            this.opponentCombo = newCombo;
+            this.updateMultiplayerScores();
+          }
         }
-      }
-    });
+      });
+    }
     
     // Also check existing players on setup
-    this.room.state.players.forEach((player, sessionId) => {
-      if (player.sessionId !== this.room?.sessionId) {
-        this.opponentScore = player.score || 0;
-        this.opponentCombo = player.combo || 0;
-        this.updateMultiplayerScores();
-      }
-    });
+    if (playersMap.forEach) {
+      playersMap.forEach((player: any, sessionId: string) => {
+        if (player.sessionId !== this.room?.sessionId) {
+          this.opponentScore = player.score || 0;
+          this.opponentCombo = player.combo || 0;
+          this.updateMultiplayerScores();
+        }
+      });
+    }
   }
   
   protected getOpponentFromState(state: GameRoomState): GameRoomState["players"][string] | null {
@@ -1039,7 +1047,9 @@ export default class MultiplayerGameScene extends GameScene {
         
         if (shouldCheck) {
           // Get all players from state
-          const allPlayers = Array.from(this.room.state.players.values()) as any[];
+          // Cast to any to access MapSchema.values() method
+          const playersMap = this.room.state.players as any;
+          const allPlayers = playersMap.values ? Array.from(playersMap.values()) as any[] : Object.values(this.room.state.players);
           const mySessionId = this.room.sessionId;
           const opponent = allPlayers.find((p: any) => p.sessionId !== mySessionId);
           

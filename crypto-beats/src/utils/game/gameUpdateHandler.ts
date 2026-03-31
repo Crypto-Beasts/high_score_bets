@@ -37,6 +37,8 @@ export interface GameUpdateHandlerConfig {
   cullMargin: number;
   getCurrentTime: () => number;
   getCurrentAudioTime: () => number;
+  vanishingPointX?: number;
+  vanishingPointY?: number;
   onGameEnd?: (data: {
     score: number;
     totalNotes: number;
@@ -75,6 +77,8 @@ export class GameUpdateHandler {
   private cullMargin: number;
   private getCurrentTime: () => number;
   private getCurrentAudioTime: () => number;
+  private vanishingPointX: number = 0;
+  private vanishingPointY: number = 0;
   private onGameEnd?: (data: {
     score: number;
     totalNotes: number;
@@ -114,6 +118,8 @@ export class GameUpdateHandler {
     this.cullMargin = config.cullMargin;
     this.getCurrentTime = config.getCurrentTime;
     this.getCurrentAudioTime = config.getCurrentAudioTime;
+    this.vanishingPointX = config.vanishingPointX ?? 0;
+    this.vanishingPointY = config.vanishingPointY ?? 0;
     this.onGameEnd = config.onGameEnd;
   }
 
@@ -139,6 +145,14 @@ export class GameUpdateHandler {
   updateScreenDimensions(screenHeight: number, cullMargin: number): void {
     this.screenHeight = screenHeight;
     this.cullMargin = cullMargin;
+  }
+
+  /**
+   * Update vanishing point for perspective rendering (called on resize)
+   */
+  updateVanishingPoint(x: number, y: number): void {
+    this.vanishingPointX = x;
+    this.vanishingPointY = y;
   }
 
   /**
@@ -238,7 +252,20 @@ export class GameUpdateHandler {
       // Update position for all notes (needed for collision detection)
       // Hold notes continue scrolling even when held - the tail "unravels" as it passes the line
       key.y += movementDelta;
-      
+
+      // Apply perspective: interpolate X and scale based on progress from top to judgment line
+      let perspectiveProgress = 1.0; // used below for hold bar width scaling
+      if (key.perspectiveFinalX !== undefined && key.perspectiveSpawnX !== undefined
+          && this.vanishingPointY !== this.judgmentY) {
+        const t = Math.max(0, Math.min(1, (key.y - this.vanishingPointY) / (judgmentY - this.vanishingPointY)));
+        perspectiveProgress = t;
+        key.x = key.perspectiveSpawnX + t * (key.perspectiveFinalX - key.perspectiveSpawnX);
+        if (key.perspectiveNoteSize) {
+          const s = 0.35 + t * 0.65; // grows from 35% to 100% of note size
+          key.setDisplaySize(key.perspectiveNoteSize * s, key.perspectiveNoteSize * s);
+        }
+      }
+
       // Update particle trail position if it exists (Phaser 3 doesn't have follow method)
       // Particle emitters have x and y properties that can be set directly
       if (key.trail) {
@@ -249,7 +276,14 @@ export class GameUpdateHandler {
       // Handle hold bar tail for ALL hold notes (both held and not held)
       if (key.isHold && key.holdBar) {
         const originalTailHeight = this.holdNoteSystem.calculateTailHeight(key.holdDuration || 0);
-        const holdBarWidth = getResponsiveSpacing(15, width);
+        // Scale bar width with perspective (wider near judgment line, narrower at top)
+        const baseHoldBarWidth = getResponsiveSpacing(15, width);
+        const holdBarWidth = baseHoldBarWidth * (0.35 + perspectiveProgress * 0.65);
+
+        // Rotate bar to match the perspective lane angle (same geometry as lane divider lines)
+        const holdBarRotation = (key.perspectiveSpawnX !== undefined && key.perspectiveFinalX !== undefined)
+          ? Math.atan2(key.perspectiveSpawnX - key.perspectiveFinalX, judgmentY - this.vanishingPointY)
+          : 0;
         
         // Always hide key sprite for held notes
         if (key.held) {
@@ -276,6 +310,7 @@ export class GameUpdateHandler {
               // Resize tail to show only the portion above judgment line
               key.holdBar.setSize(holdBarWidth, clippedHeight);
               key.holdBar.setOrigin(0.5, 1);
+              key.holdBar.setRotation(holdBarRotation);
               // Position tail so its bottom is at the judgment line
               key.holdBar.setPosition(key.x, judgmentY);
               key.holdBar.setVisible(true);
@@ -434,6 +469,7 @@ export class GameUpdateHandler {
           // Key hasn't reached judgment line yet - show full tail
           key.holdBar.setSize(holdBarWidth, originalTailHeight);
           key.holdBar.setOrigin(0.5, 1);
+          key.holdBar.setRotation(holdBarRotation);
           key.holdBar.setPosition(key.x, key.y);
           key.holdBar.setVisible(true);
           

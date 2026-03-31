@@ -54,6 +54,11 @@ export default class GameScene extends Phaser.Scene {
   protected keyLanes: Record<string, KeyLane> = {};
   protected gameplayLayout?: GameplayLayout;
   
+  // Perspective system
+  protected VP_X: number = 0;
+  protected VP_Y: number = 0;
+  protected perspectiveLanes?: Phaser.GameObjects.Graphics;
+
   // Visual elements
   protected backgroundImage?: Phaser.GameObjects.Image;
   protected backgroundRect?: Phaser.GameObjects.Rectangle;
@@ -221,16 +226,12 @@ export default class GameScene extends Phaser.Scene {
     this.currentDifficulty = difficulty as DifficultyLevel;
 
     // Synchronization constants - FALL_TIME always stays 2.0s to maintain sync
-    const FALL_TIME = 2.0; // seconds - time for notes to fall from top to judgment line (ALWAYS CONSTANT)
-    const SPAWN_Y = 0; // Y position where notes spawn (top of screen)
+    const FALL_TIME = 2.0; // seconds - time for notes to fall from VP to judgment line (ALWAYS CONSTANT)
     // Responsive judgment line position - scales with screen height but maintains minimum distance from bottom
     const JUDGMENT_Y = height - getResponsiveSpacing(100, height);
-    const FALL_DISTANCE = JUDGMENT_Y - SPAWN_Y; // Distance notes must travel
-    const PIXELS_PER_SECOND = FALL_DISTANCE / FALL_TIME; // Speed calculation
 
-    // Store constants for use in update()
+    // Store constants for use in update() (PIXELS_PER_SECOND set after VP is computed below)
     this.FALL_TIME = FALL_TIME;
-    this.PIXELS_PER_SECOND = PIXELS_PER_SECOND;
     this.JUDGMENT_Y = JUDGMENT_Y;
     // Responsive margins - scale with screen size
     const basePerfectMargin = difficultyConfig.perfectMargin || 15;
@@ -343,8 +344,7 @@ export default class GameScene extends Phaser.Scene {
       onJudgmentYChanged: (judgmentY) => {
         this.JUDGMENT_Y = judgmentY;
         if (this.gameUpdateHandler) {
-          const FALL_DISTANCE = judgmentY - 0;
-          const pixelsPerSecond = FALL_DISTANCE / this.FALL_TIME;
+          const pixelsPerSecond = (judgmentY - this.VP_Y) / this.FALL_TIME;
           this.PIXELS_PER_SECOND = pixelsPerSecond;
           this.gameUpdateHandler.updateJudgmentY(judgmentY, pixelsPerSecond);
         }
@@ -368,6 +368,20 @@ export default class GameScene extends Phaser.Scene {
     const layout = this.gameplayLayoutManager.calculateGameplayLayout(width, height);
     this.keyLanes = layout.lanes;
     this.gameplayLayout = layout;
+
+    // Perspective vanishing point: center of gameplay area, 55% from top (lower half of screen)
+    const VP_X = (layout.gameplayStartX + layout.gameplayEndX) / 2;
+    const VP_Y = height * 0.55;
+    this.VP_X = VP_X;
+    this.VP_Y = VP_Y;
+    const PIXELS_PER_SECOND = (JUDGMENT_Y - VP_Y) / FALL_TIME;
+    this.PIXELS_PER_SECOND = PIXELS_PER_SECOND;
+
+    // Draw perspective highway lanes (Guitar Hero style)
+    if (this.perspectiveLanes) this.perspectiveLanes.destroy();
+    this.perspectiveLanes = this.add.graphics();
+    this.perspectiveLanes.setDepth(1);
+    this.drawPerspectiveLanes(VP_X, VP_Y, JUDGMENT_Y, layout);
 
     // Judgment Line - Use gameplay area boundaries with theme color
     this.judgmentLine = this.gameplayLayoutManager.createJudgmentLine();
@@ -439,7 +453,10 @@ export default class GameScene extends Phaser.Scene {
       gameplayLayout: layout,
       themeColors: this.themeColors,
       judgmentY: this.JUDGMENT_Y,
-      calculateTailHeight: (holdDuration) => this.holdNoteSystem!.calculateTailHeight(holdDuration)
+      calculateTailHeight: (holdDuration) => this.holdNoteSystem!.calculateTailHeight(holdDuration),
+      vanishingPointX: this.VP_X,
+      vanishingPointY: this.VP_Y,
+      perspectiveRatio: 0.45,
     });
 
     // Static key visuals for feedback - Use gameplay layout sizing
@@ -544,6 +561,8 @@ export default class GameScene extends Phaser.Scene {
       cullMargin: this.cullMargin,
       getCurrentTime: () => this.time.now,
       getCurrentAudioTime: () => this.getCurrentAudioTime(),
+      vanishingPointX: this.VP_X,
+      vanishingPointY: this.VP_Y,
       onGameEnd: (data) => {
         this.scene.start("DebriefScene", data);
       }
@@ -764,6 +783,48 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
+  protected drawPerspectiveLanes(vpX: number, vpY: number, judgmentY: number, layout: GameplayLayout): void {
+    if (!this.perspectiveLanes) return;
+    this.perspectiveLanes.clear();
+
+    const RATIO = 0.45; // lanes at top are 45% of bottom spread
+    const halfKey = layout.keySize / 2;
+    const laneXValues = Object.values(layout.lanes).map(l => l.x).sort((a, b) => a - b);
+
+    // Bottom edge (at judgment line — full width)
+    const leftX  = laneXValues[0] - halfKey;
+    const rightX = laneXValues[laneXValues.length - 1] + halfKey;
+
+    // Top edge (compressed toward center by RATIO)
+    const topLeftX  = vpX + (leftX  - vpX) * RATIO;
+    const topRightX = vpX + (rightX - vpX) * RATIO;
+
+    // Highway background trapezoid
+    this.perspectiveLanes.fillStyle(0x080818, 0.85);
+    this.perspectiveLanes.fillPoints([
+      { x: topLeftX,  y: vpY },
+      { x: topRightX, y: vpY },
+      { x: rightX,    y: judgmentY },
+      { x: leftX,     y: judgmentY },
+    ], true);
+
+    // Outer edge lines
+    this.perspectiveLanes.lineStyle(2, 0x4488cc, 0.9);
+    this.perspectiveLanes.strokeLineShape(new Phaser.Geom.Line(topLeftX,  vpY, leftX,  judgmentY));
+    this.perspectiveLanes.strokeLineShape(new Phaser.Geom.Line(topRightX, vpY, rightX, judgmentY));
+
+    // Lane divider lines — each lane's top X is also compressed by RATIO
+    this.perspectiveLanes.lineStyle(1, 0x334466, 0.6);
+    for (const laneX of laneXValues) {
+      const topLaneX = vpX + (laneX - vpX) * RATIO;
+      this.perspectiveLanes.strokeLineShape(new Phaser.Geom.Line(topLaneX, vpY, laneX, judgmentY));
+    }
+
+    // Horizontal line at top edge of highway
+    this.perspectiveLanes.lineStyle(1, 0x4488cc, 0.5);
+    this.perspectiveLanes.strokeLineShape(new Phaser.Geom.Line(topLeftX, vpY, topRightX, vpY));
+  }
+
   protected handleResize(gameSize?: Phaser.Structs.Size): void {
     const { width, height } = this.scale;
     
@@ -831,13 +892,9 @@ export default class GameScene extends Phaser.Scene {
           
           notesToUpdate.forEach(note => {
             if (note && note.keyType && keyLanes[note.keyType]) {
-              // Update note x position to new lane position
-              note.x = keyLanes[note.keyType].x;
-              
-              // Update note size if it's a sprite
-              if (note.setDisplaySize) {
-                note.setDisplaySize(layout.keySize, layout.keySize);
-              }
+              // Update perspective target (update loop recalculates actual x/scale each frame)
+              note.perspectiveFinalX = keyLanes[note.keyType].x;
+              note.perspectiveNoteSize = layout.keySize;
               
               // Update hold bar tail if it exists
               if (note.isHold && note.holdBar && this.holdNoteSystem) {
@@ -907,14 +964,23 @@ export default class GameScene extends Phaser.Scene {
     this.cullMargin = getResponsiveSpacing(100, resizeHeight);
     
     // Update managers
-    if (this.gameUpdateHandler) {
-      this.gameUpdateHandler.updateJudgmentY(result.judgmentY, result.pixelsPerSecond);
-      this.gameUpdateHandler.updateScreenDimensions(this.screenHeight, this.cullMargin);
+    // Recalculate VP based on new screen size and layout
+    if (this.gameplayLayoutManager.gameplayLayout) {
+      const newLayout = this.gameplayLayoutManager.gameplayLayout;
+      this.VP_X = (newLayout.gameplayStartX + newLayout.gameplayEndX) / 2;
+      this.VP_Y = resizeHeight * 0.55;
+      if (this.perspectiveLanes) {
+        this.drawPerspectiveLanes(this.VP_X, this.VP_Y, result.judgmentY, newLayout);
+      }
+      this.noteManager.updateLayout(newLayout);
+      this.noteManager.updateVanishingPoint(this.VP_X, this.VP_Y);
     }
 
-    // Update note manager layout (this also updates note positions)
-    if (this.gameplayLayoutManager.gameplayLayout) {
-      this.noteManager.updateLayout(this.gameplayLayoutManager.gameplayLayout);
+    if (this.gameUpdateHandler) {
+      const vpPixelsPerSecond = (result.judgmentY - this.VP_Y) / this.FALL_TIME;
+      this.gameUpdateHandler.updateJudgmentY(result.judgmentY, vpPixelsPerSecond);
+      this.gameUpdateHandler.updateScreenDimensions(this.screenHeight, this.cullMargin);
+      this.gameUpdateHandler.updateVanishingPoint(this.VP_X, this.VP_Y);
     }
 
     // Update visual effects falling keys reference

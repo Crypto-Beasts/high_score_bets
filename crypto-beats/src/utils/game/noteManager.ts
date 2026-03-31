@@ -38,6 +38,9 @@ export interface FallingNote extends Phaser.GameObjects.Image {
   originalColor?: number;
   holdBarStartY?: number;
   requiredHoldEndTime?: number;
+  perspectiveFinalX?: number;   // Target X at judgment line (perspective system)
+  perspectiveSpawnX?: number;   // X at the top of the highway for this lane
+  perspectiveNoteSize?: number; // Base note size before perspective scaling
 }
 
 export interface NoteManagerConfig {
@@ -47,6 +50,9 @@ export interface NoteManagerConfig {
   themeColors: ThemeColors;
   judgmentY: number;
   calculateTailHeight: (holdDuration: number) => number;
+  vanishingPointX?: number;
+  vanishingPointY?: number;
+  perspectiveRatio?: number; // 0=all converge to center, 1=no compression (default 0.45)
 }
 
 export class NoteManager {
@@ -61,6 +67,9 @@ export class NoteManager {
   public holdNotePool?: ObjectPool<Phaser.GameObjects.Rectangle>;
   public fallingKeys: FallingNote[] = [];
   public totalNotes: number = 0;
+  private vanishingPointX: number = 0;
+  private vanishingPointY: number = 0;
+  private perspectiveRatio: number = 0.45;
 
   constructor(config: NoteManagerConfig) {
     this.scene = config.scene;
@@ -69,6 +78,9 @@ export class NoteManager {
     this.themeColors = config.themeColors;
     this.judgmentY = config.judgmentY;
     this.calculateTailHeight = config.calculateTailHeight;
+    this.vanishingPointX = config.vanishingPointX ?? 0;
+    this.vanishingPointY = config.vanishingPointY ?? 0;
+    this.perspectiveRatio = config.perspectiveRatio ?? 0.45;
 
     // Initialize object pools
     this.holdNotePool = createHoldNotePool(this.scene, 20);
@@ -105,19 +117,26 @@ export class NoteManager {
     const { width, height } = this.scene.scale;
     const noteSize = this.gameplayLayout ? this.gameplayLayout.keySize : 50; // Fallback size
 
+    // Per-lane top X: lanes are compressed toward center at the top of the highway
+    const spawnX = this.vanishingPointX + (lane.x - this.vanishingPointX) * this.perspectiveRatio;
+    const spawnScale = 0.35; // notes start at 35% of full size at the top
+
     if (isHoldNote) {
       // Hold notes: key sprite at top + tail bar connecting to judgment line
       const keySprite = this.notePools[key].acquire() as FallingNote;
-      keySprite.setPosition(lane.x, 0);
-      keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
+      keySprite.setPosition(spawnX, this.vanishingPointY);
+      keySprite.setDisplaySize(noteSize * spawnScale, noteSize * spawnScale);
       keySprite.setOrigin(0.5, 0.5);
       keySprite.setDepth(10);
       keySprite.setVisible(true);
       keySprite.setActive(true);
-      
+
       // Store note properties
       keySprite.keyType = key;
       keySprite.isHold = true;
+      keySprite.perspectiveFinalX = lane.x;
+      keySprite.perspectiveSpawnX = spawnX;
+      keySprite.perspectiveNoteSize = noteSize;
       keySprite.held = false;
       keySprite.holdDuration = duration;
       keySprite.holdStartTime = null;
@@ -128,7 +147,7 @@ export class NoteManager {
       keySprite.setTint(this.themeColors.note);
       
       // Create trail effect (same as regular notes)
-      keySprite.trail = this.scene.add.particles(lane.x, 0, 'noteTrail', {
+      keySprite.trail = this.scene.add.particles(spawnX, this.vanishingPointY, 'noteTrail', {
         speed: { min: 20, max: 40 },
         scale: { start: 0.3, end: 0 },
         alpha: { start: 0.8, end: 0 },
@@ -137,7 +156,7 @@ export class NoteManager {
         tint: this.themeColors.trail
       });
       keySprite.trail.setDepth(9); // Just behind the note
-      
+
       // Create hold bar tail - extends UPWARD from key sprite
       // IMPORTANT: Tail must be behind the key sprite (like Rock Band - key in front, line behind)
       // Tail height is based on hold duration - longer holds = longer tails
@@ -145,9 +164,9 @@ export class NoteManager {
         const holdBar = this.holdNotePool.acquire();
         const holdBarWidth = getResponsiveSpacing(15, width);
         const tailHeight = this.calculateTailHeight(duration);
-        
-        // Position tail so it extends upward from the key sprite
-        holdBar.setPosition(lane.x, 0); // Position at key sprite (spawn position)
+
+        // Position tail at lane's top X (perspective system will update it)
+        holdBar.setPosition(spawnX, this.vanishingPointY);
         holdBar.setSize(holdBarWidth, tailHeight);
         const tailColor = Phaser.Display.Color.IntegerToColor(this.themeColors.note);
         tailColor.alpha = 0.7;
@@ -165,23 +184,26 @@ export class NoteManager {
     } else {
       // Use object pool for regular notes
       const keySprite = this.notePools[key].acquire() as FallingNote;
-      keySprite.setPosition(lane.x, 0);
-      keySprite.setDisplaySize(noteSize, noteSize); // Responsive note size
+      keySprite.setPosition(spawnX, this.vanishingPointY);
+      keySprite.setDisplaySize(noteSize * spawnScale, noteSize * spawnScale);
       keySprite.setOrigin(0.5, 0.5);
       keySprite.setDepth(10);
       keySprite.setVisible(true);
       keySprite.setActive(true);
-      
+
       // Store note properties
       keySprite.keyType = key;
       keySprite.isHold = false;
       keySprite.held = false;
       keySprite.pooled = true; // Mark as pooled for cleanup
-      
+      keySprite.perspectiveFinalX = lane.x;
+      keySprite.perspectiveSpawnX = spawnX;
+      keySprite.perspectiveNoteSize = noteSize;
+
       // Create trail effect for regular notes with theme colors
       // Note: Particle emitters don't have a follow() method in Phaser 3
       // We'll update the emitter position manually in the update loop
-      keySprite.trail = this.scene.add.particles(lane.x, 0, 'noteTrail', {
+      keySprite.trail = this.scene.add.particles(spawnX, this.vanishingPointY, 'noteTrail', {
         speed: { min: 20, max: 40 },
         scale: { start: 0.3, end: 0 },
         alpha: { start: 0.8, end: 0 },
@@ -231,27 +253,35 @@ export class NoteManager {
   }
 
   /**
+   * Update the vanishing point used for perspective spawning (called on resize)
+   */
+  updateVanishingPoint(x: number, y: number, ratio?: number): void {
+    this.vanishingPointX = x;
+    this.vanishingPointY = y;
+    if (ratio !== undefined) this.perspectiveRatio = ratio;
+  }
+
+  /**
    * Update gameplay layout (called on resize)
    * @param gameplayLayout - New gameplay layout
    */
   updateLayout(gameplayLayout: GameplayLayout): void {
     this.gameplayLayout = gameplayLayout;
     this.keyLanes = gameplayLayout.lanes;
-    
-    // Update positions of all currently falling notes to match new lane positions
+
+    // Update perspective target positions for all currently falling notes
     this.fallingKeys.forEach(note => {
       if (note && note.keyType && this.keyLanes[note.keyType]) {
-        // Update note x position to new lane position
-        note.x = this.keyLanes[note.keyType].x;
-        
-        // Update note size if it's a sprite
-        if (note.setDisplaySize && this.gameplayLayout) {
-          note.setDisplaySize(this.gameplayLayout.keySize, this.gameplayLayout.keySize);
+        const laneX = this.keyLanes[note.keyType].x;
+        note.perspectiveFinalX = laneX;
+        note.perspectiveSpawnX = this.vanishingPointX + (laneX - this.vanishingPointX) * this.perspectiveRatio;
+        if (this.gameplayLayout) {
+          note.perspectiveNoteSize = this.gameplayLayout.keySize;
         }
-        
+
         // Update hold bar position if it exists
         if (note.isHold && note.holdBar) {
-          note.holdBar.setPosition(this.keyLanes[note.keyType].x, note.y);
+          note.holdBar.setPosition(note.x, note.y);
         }
       }
     });
