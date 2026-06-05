@@ -219,7 +219,7 @@ export function validateClientInputs(
   const expectedNotes = generator.getAllNotes();
   const issues: Array<{ input?: any; reason: string; count?: number; notes?: VariedNote[] }> = [];
   let matchCount = 0;
-  let totalExpected = expectedNotes.length;
+  const totalExpected = expectedNotes.length;
   
   // Validate each client input
   for (const input of clientInputs) {

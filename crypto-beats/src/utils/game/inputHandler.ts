@@ -125,7 +125,7 @@ export class InputHandler {
                 this.scene.tweens.killTweensOf(keyVisual);
                 
                 // Determine color based on quality
-                let quality = distance < perfectMargin ? "perfect" : "good";
+                const quality = distance < perfectMargin ? "perfect" : "good";
                 const tintColor = quality === "perfect" ? this.themeColors.perfect : this.themeColors.good;
                 
                 // Immediately set to pressed state (no animation)
@@ -231,7 +231,7 @@ export class InputHandler {
           handledHoldNote = true;
           // Use audio time for accurate hold duration calculation
           const currentAudioTime = this.getCurrentAudioTime();
-          const holdStartAudioTime = note.holdStartAudioTime;
+          const holdStartAudioTime = note.holdStartAudioTime ?? currentAudioTime;
           const requiredDuration = note.holdDuration || 0;
           const expectedEndTime = holdStartAudioTime + requiredDuration;
           

@@ -21,6 +21,37 @@ export default class MainMenuScene extends Phaser.Scene {
     super({ key: "MainMenuScene" });
   }
 
+  /** Wire up the shared scale/background-color hover animation for a button. */
+  private addHoverEffect(
+    button: Phaser.GameObjects.Text,
+    baseColor: string,
+    hoverColor: string
+  ): void {
+    button.on("pointerover", () => {
+      this.tweens.killTweensOf(button);
+      this.tweens.add({
+        targets: button,
+        scaleX: 1.05,
+        scaleY: 1.05,
+        backgroundColor: hoverColor,
+        duration: 150,
+        ease: "Power2",
+      });
+    });
+
+    button.on("pointerout", () => {
+      this.tweens.killTweensOf(button);
+      this.tweens.add({
+        targets: button,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        backgroundColor: baseColor,
+        duration: 150,
+        ease: "Power2",
+      });
+    });
+  }
+
   create(): void {
     this.setupUI();
     
@@ -101,30 +132,7 @@ export default class MainMenuScene extends Phaser.Scene {
         this.toggleGameMode();
     });
 
-    // Hover effects for Start Game button
-    this.startButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.startButton);
-        this.tweens.add({
-            targets: this.startButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#00aadd",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.startButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.startButton);
-        this.tweens.add({
-            targets: this.startButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#008CBA",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.startButton, "#008CBA", "#00aadd");
 
     // Game mode sub-menu buttons (initially hidden)
     // Single Player
@@ -142,30 +150,7 @@ export default class MainMenuScene extends Phaser.Scene {
         }
     });
 
-    // Hover effects for Single Player button
-    this.singlePlayerButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.singlePlayerButton);
-        this.tweens.add({
-            targets: this.singlePlayerButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#0088cc",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.singlePlayerButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.singlePlayerButton);
-        this.tweens.add({
-            targets: this.singlePlayerButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#0077aa",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.singlePlayerButton, "#0077aa", "#0088cc");
 
     // Multiplayer
     this.multiplayerButton = this.add.text(width / 2, height / 2 + buttonSpacing * 2, "Multiplayer", {
@@ -182,30 +167,7 @@ export default class MainMenuScene extends Phaser.Scene {
         }
     });
 
-    // Hover effects for Multiplayer button
-    this.multiplayerButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.multiplayerButton);
-        this.tweens.add({
-            targets: this.multiplayerButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#00cc00",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.multiplayerButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.multiplayerButton);
-        this.tweens.add({
-            targets: this.multiplayerButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#00aa00",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.multiplayerButton, "#00aa00", "#00cc00");
 
     // Options button (expandable section) - placed below Start Game
     this.optionsButton = this.add.text(width / 2, height / 2 + buttonSpacing, "Options", {
@@ -219,30 +181,7 @@ export default class MainMenuScene extends Phaser.Scene {
         this.toggleOptions();
     });
 
-    // Hover effects for Options button
-    this.optionsButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.optionsButton);
-        this.tweens.add({
-            targets: this.optionsButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#666666",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.optionsButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.optionsButton);
-        this.tweens.add({
-            targets: this.optionsButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#555",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.optionsButton, "#555", "#666666");
 
     // Options sub-menu buttons (initially hidden)
     // About Us
@@ -257,30 +196,7 @@ export default class MainMenuScene extends Phaser.Scene {
         this.scene.start("AboutUsScene");
     });
 
-    // Hover effects for About Us button
-    this.aboutButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.aboutButton);
-        this.tweens.add({
-            targets: this.aboutButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#555555",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.aboutButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.aboutButton);
-        this.tweens.add({
-            targets: this.aboutButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#444",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.aboutButton, "#444", "#555555");
 
     // Audio Calibration
     this.settingsButton = this.add.text(width / 2, height / 2 + buttonSpacing * 3, "Audio Calibration", {
@@ -294,30 +210,7 @@ export default class MainMenuScene extends Phaser.Scene {
         this.scene.start("AudioCalibrationScene");
     });
 
-    // Hover effects for Audio Calibration button
-    this.settingsButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.settingsButton);
-        this.tweens.add({
-            targets: this.settingsButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#555555",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.settingsButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.settingsButton);
-        this.tweens.add({
-            targets: this.settingsButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#444",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.settingsButton, "#444", "#555555");
 
     // Color Themes
     this.themesButton = this.add.text(width / 2, height / 2 + buttonSpacing * 4, "Color Themes", {
@@ -331,30 +224,7 @@ export default class MainMenuScene extends Phaser.Scene {
         this.scene.start("ThemeSelectionScene");
     });
 
-    // Hover effects for Color Themes button
-    this.themesButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.themesButton);
-        this.tweens.add({
-            targets: this.themesButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#555555",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.themesButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.themesButton);
-        this.tweens.add({
-            targets: this.themesButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#444",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.themesButton, "#444", "#555555");
 
     // Test Debrief (Development tool - in Options section)
     this.testDebriefButton = this.add.text(width / 2, height / 2 + buttonSpacing * 5, "Test Debrief", {
@@ -381,30 +251,7 @@ export default class MainMenuScene extends Phaser.Scene {
         });
     });
 
-    // Hover effects for Test Debrief button
-    this.testDebriefButton.on("pointerover", () => {
-        this.tweens.killTweensOf(this.testDebriefButton);
-        this.tweens.add({
-            targets: this.testDebriefButton,
-            scaleX: 1.05,
-            scaleY: 1.05,
-            backgroundColor: "#9966bb",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
-
-    this.testDebriefButton.on("pointerout", () => {
-        this.tweens.killTweensOf(this.testDebriefButton);
-        this.tweens.add({
-            targets: this.testDebriefButton,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            backgroundColor: "#8844aa",
-            duration: 150,
-            ease: "Power2"
-        });
-    });
+    this.addHoverEffect(this.testDebriefButton, "#8844aa", "#9966bb");
 
     // Adjust positions if sections are expanded
     if (this.gameModeExpanded) {

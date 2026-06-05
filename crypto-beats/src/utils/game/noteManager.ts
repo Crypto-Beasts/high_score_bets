@@ -26,10 +26,10 @@ export interface FallingNote extends Phaser.GameObjects.Image {
   isHold: boolean;
   held?: boolean;
   holdStartTime?: number | null;
-  holdStartAudioTime?: number;
+  holdStartAudioTime?: number | null;
   holdDuration?: number;
   missTriggered?: boolean;
-  holdBar?: Phaser.GameObjects.Rectangle;
+  holdBar?: Phaser.GameObjects.Rectangle | null;
   spawnTime?: number;
   trail?: any; // Phaser.GameObjects.Particles.ParticleEmitterManager
   keySpriteHidden?: boolean;
@@ -86,7 +86,7 @@ export class NoteManager {
     this.holdNotePool = createHoldNotePool(this.scene, 20);
     
     // Create pools for each key type
-    for (let key in this.keyLanes) {
+    for (const key in this.keyLanes) {
       this.notePools[key] = createNotePool(this.scene, this.keyLanes[key].sprite, 15);
     }
   }

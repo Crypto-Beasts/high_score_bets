@@ -1,6 +1,13 @@
 import { Room, Client } from "colyseus";
 import { GameRoomState, PlayerSchema } from "./GameRoomState";
 
+// Verbose per-event logging is off by default. Enable with DEBUG=true.
+// Warnings and errors are always logged regardless of this flag.
+const DEBUG = process.env.DEBUG === "true";
+const log = (...args: unknown[]): void => {
+  if (DEBUG) log(...args);
+};
+
 interface CreateRoomOptions {
   song?: string;
   difficulty?: string;
@@ -31,7 +38,7 @@ export class GameRoom extends Room<GameRoomState> {
   private unlockInterval?: NodeJS.Timeout;
 
   onCreate(options: CreateRoomOptions) {
-    console.log(`[GameRoom] Room created: ${this.roomId}`);
+    log(`[GameRoom] Room created: ${this.roomId}`);
     
     // Initialize room state
     this.setState(new GameRoomState());
@@ -51,7 +58,7 @@ export class GameRoom extends Room<GameRoomState> {
     setImmediate(() => {
       if (this.locked) {
         this.unlock();
-        console.log(`[GameRoom] Unlocked room ${this.roomId} on creation`);
+        log(`[GameRoom] Unlocked room ${this.roomId} on creation`);
       }
     });
     
@@ -60,7 +67,7 @@ export class GameRoom extends Room<GameRoomState> {
     this.unlockInterval = setInterval(() => {
       if (this.locked) {
         this.unlock();
-        console.log(`[GameRoom] Proactively unlocked room ${this.roomId}`);
+        log(`[GameRoom] Proactively unlocked room ${this.roomId}`);
       }
     }, 500); // Check every 500ms to catch locks quickly
 
@@ -85,11 +92,11 @@ export class GameRoom extends Room<GameRoomState> {
   }
 
   onJoin(client: Client, options?: CreateRoomOptions) {
-    console.log(`[GameRoom] Player ${client.sessionId} joined room ${this.roomId}`);
+    log(`[GameRoom] Player ${client.sessionId} joined room ${this.roomId}`);
     
     // Validate join here (moved from onAuth to avoid state access issues)
     if (this.state.status === "finished") {
-      console.log(`[GameRoom] Room ${this.roomId} is finished, disconnecting client`);
+      log(`[GameRoom] Room ${this.roomId} is finished, disconnecting client`);
       client.leave();
       return;
     }
@@ -102,7 +109,7 @@ export class GameRoom extends Room<GameRoomState> {
       const activeClientCount = this.clients.length;
       if (activeClientCount > 2) {
         // Room is over capacity (shouldn't happen with maxClients=10, but check anyway)
-        console.log(`[GameRoom] Room ${this.roomId} over capacity (${activeClientCount}), disconnecting client`);
+        log(`[GameRoom] Room ${this.roomId} over capacity (${activeClientCount}), disconnecting client`);
         client.leave();
         return;
       }
@@ -114,33 +121,33 @@ export class GameRoom extends Room<GameRoomState> {
       player.song = this.state.song;
       player.difficulty = this.state.difficulty;
       this.state.players.set(client.sessionId, player);
-      console.log(`[GameRoom] New player ${client.sessionId} added (${activeClientCount + 1} active clients)`);
+      log(`[GameRoom] New player ${client.sessionId} added (${activeClientCount + 1} active clients)`);
     } else {
       // Reconnection - player already exists in state
-      console.log(`[GameRoom] Player ${client.sessionId} reconnected`);
+      log(`[GameRoom] Player ${client.sessionId} reconnected`);
     }
 
     // Immediately unlock room after join - we control access manually
     if (this.locked) {
       this.unlock();
-      console.log(`[GameRoom] Unlocked room ${this.roomId} after join`);
+      log(`[GameRoom] Unlocked room ${this.roomId} after join`);
     }
 
     // Log current client count for debugging
     const currentClientCount = this.clients.length;
-    console.log(`[GameRoom] Room ${this.roomId} now has ${currentClientCount} active client(s), status: ${this.state.status}`);
+    log(`[GameRoom] Room ${this.roomId} now has ${currentClientCount} active client(s), status: ${this.state.status}`);
 
     // If room is full (2 active clients), start game countdown (only if waiting)
     if (currentClientCount >= 2 && this.state.status === "waiting") {
-      console.log(`[GameRoom] Room ${this.roomId} has 2 players, starting game countdown`);
+      log(`[GameRoom] Room ${this.roomId} has 2 players, starting game countdown`);
       this.startGame();
     } else {
-      console.log(`[GameRoom] Room ${this.roomId} waiting for more players (${currentClientCount}/2)`);
+      log(`[GameRoom] Room ${this.roomId} waiting for more players (${currentClientCount}/2)`);
     }
   }
 
   async onLeave(client: Client, consented: boolean) {
-    console.log(`[GameRoom] Player ${client.sessionId} left room ${this.roomId} (consented: ${consented})`);
+    log(`[GameRoom] Player ${client.sessionId} left room ${this.roomId} (consented: ${consented})`);
     
     // Don't remove player from state immediately - keep them for potential reconnection
     // They will be removed after timeout or when room disposes
@@ -148,7 +155,7 @@ export class GameRoom extends Room<GameRoomState> {
     // Immediately unlock room when player leaves
     if (this.locked) {
       this.unlock();
-      console.log(`[GameRoom] Unlocked room ${this.roomId} after player left`);
+      log(`[GameRoom] Unlocked room ${this.roomId} after player left`);
     }
 
     // Clear start timeout if exists
@@ -164,14 +171,14 @@ export class GameRoom extends Room<GameRoomState> {
         // Player didn't reconnect, remove from state
         if (this.state.players.has(client.sessionId)) {
           this.state.players.delete(client.sessionId);
-          console.log(`[GameRoom] Removed ${client.sessionId} from state (reconnection timeout)`);
+          log(`[GameRoom] Removed ${client.sessionId} from state (reconnection timeout)`);
         }
       }
     }, 30000); // 30 second timeout
 
     // If room becomes empty, dispose it
     if (this.clients.length === 0) {
-      console.log(`[GameRoom] Room ${this.roomId} is empty, disposing...`);
+      log(`[GameRoom] Room ${this.roomId} is empty, disposing...`);
       // Now remove all players from state before disposing
       this.state.players.clear();
       this.disconnect();
@@ -179,7 +186,7 @@ export class GameRoom extends Room<GameRoomState> {
   }
 
   onDispose() {
-    console.log(`[GameRoom] Room ${this.roomId} disposed`);
+    log(`[GameRoom] Room ${this.roomId} disposed`);
     if (this.startTimeout) {
       clearTimeout(this.startTimeout);
     }
@@ -193,7 +200,7 @@ export class GameRoom extends Room<GameRoomState> {
       return; // Game already started or starting
     }
 
-    console.log(`[GameRoom] Room ${this.roomId} full, starting game in 3 seconds`);
+    log(`[GameRoom] Room ${this.roomId} full, starting game in 3 seconds`);
     this.state.status = "starting";
 
     // Set start time (3 seconds from now)
@@ -203,7 +210,7 @@ export class GameRoom extends Room<GameRoomState> {
     this.startTimeout = setTimeout(() => {
       if (this.state.status === "starting") {
         this.state.status = "playing";
-        console.log(`[GameRoom] Room ${this.roomId} game started`);
+        log(`[GameRoom] Room ${this.roomId} game started`);
       }
     }, 3000);
   }
@@ -229,7 +236,7 @@ export class GameRoom extends Room<GameRoomState> {
     
     // Log score update
     if (oldScore !== player.score || oldCombo !== player.combo) {
-      console.log(`[GameRoom] Player ${client.sessionId} score updated: ${oldScore} -> ${player.score}, combo: ${oldCombo} -> ${player.combo}`);
+      log(`[GameRoom] Player ${client.sessionId} score updated: ${oldScore} -> ${player.score}, combo: ${oldCombo} -> ${player.combo}`);
     }
   }
 
@@ -256,7 +263,7 @@ export class GameRoom extends Room<GameRoomState> {
       return;
     }
 
-    console.log(`[GameRoom] Player ${client.sessionId} finished game in room ${this.roomId}`);
+    log(`[GameRoom] Player ${client.sessionId} finished game in room ${this.roomId}`);
 
     // Update player final stats
     player.finished = true;
@@ -285,7 +292,7 @@ export class GameRoom extends Room<GameRoomState> {
         (curr.finalScore || 0) > (prev.finalScore || 0) ? curr : prev
       );
 
-      console.log(`[GameRoom] Room ${this.roomId} - Winner: ${winner.sessionId} with score ${winner.finalScore}`);
+      log(`[GameRoom] Room ${this.roomId} - Winner: ${winner.sessionId} with score ${winner.finalScore}`);
 
       this.state.status = "finished";
 

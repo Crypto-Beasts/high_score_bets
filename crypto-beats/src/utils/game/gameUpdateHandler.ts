@@ -124,6 +124,14 @@ export class GameUpdateHandler {
   }
 
   /**
+   * Disable the game-end callback. Used by MultiplayerGameScene, which handles
+   * game end itself and must not trigger the single-player debrief transition.
+   */
+  clearOnGameEnd(): void {
+    this.onGameEnd = undefined;
+  }
+
+  /**
    * Update judgment Y and pixels per second (called on resize)
    */
   updateJudgmentY(judgmentY: number, pixelsPerSecond: number): void {
@@ -375,7 +383,7 @@ export class GameUpdateHandler {
             if (key.held && !key.missTriggered) {
               // Check if hold was completed successfully using audio time
               const currentAudioTime = this.getCurrentAudioTime();
-              const holdStartAudioTime = key.holdStartAudioTime;
+              const holdStartAudioTime = key.holdStartAudioTime ?? currentAudioTime;
               const requiredDuration = key.holdDuration || 0;
               const expectedEndTime = holdStartAudioTime + requiredDuration;
               const durationTolerance = 0.1; // 100ms tolerance

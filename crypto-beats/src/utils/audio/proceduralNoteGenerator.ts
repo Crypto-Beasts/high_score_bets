@@ -44,7 +44,7 @@ export class ProceduralNoteGenerator {
   
   // Audio analysis setup
   private analyser: AnalyserNode | null = null;
-  private dataArray: Uint8Array | null = null;
+  private dataArray: Uint8Array<ArrayBuffer> | null = null;
   private bufferLength: number = 0;
   
   // Beat detection
@@ -125,9 +125,7 @@ export class ProceduralNoteGenerator {
     
     // Get frequency data
     if (this.dataArray && this.analyser) {
-      // Type assertion needed because TypeScript is strict about ArrayBuffer vs ArrayBufferLike
-      // The runtime type is correct, but TypeScript needs this assertion
-      (this.analyser as any).getByteFrequencyData(this.dataArray);
+      this.analyser.getByteFrequencyData(this.dataArray);
     }
     
     // Calculate energy in each frequency band
@@ -360,9 +358,14 @@ export function createProceduralGenerator(
   phaserAudio: Phaser.Sound.BaseSound,
   difficulty: string = 'normal'
 ): ProceduralNoteGenerator | null {
-  // Check if Web Audio API is available
-  const AudioContextClass = (typeof AudioContext !== 'undefined') ? AudioContext : 
-                           (typeof (window as any).webkitAudioContext !== 'undefined') ? (window as any).webkitAudioContext : null;
+  // Check if Web Audio API is available (webkit prefix for older Safari)
+  const w = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+  const AudioContextClass =
+    typeof AudioContext !== "undefined"
+      ? AudioContext
+      : typeof w.webkitAudioContext !== "undefined"
+        ? w.webkitAudioContext
+        : null;
   
   if (!AudioContextClass) {
     console.warn('[ProceduralGenerator] Web Audio API not available');

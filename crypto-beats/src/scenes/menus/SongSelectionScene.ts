@@ -35,6 +35,19 @@ interface SongCard {
   songId?: string;
 }
 
+// The achievements popup is a Container with cleanup handlers stashed on it.
+type PopupContainer = Phaser.GameObjects.Container & {
+  _popupWheelHandler?: (
+    pointer: Phaser.Input.Pointer,
+    gameObjects: Phaser.GameObjects.GameObject[],
+    deltaX: number,
+    deltaY: number,
+    deltaZ: number
+  ) => void;
+  _popupDragHandler?: (pointer: Phaser.Input.Pointer) => void;
+  _popupDragEndHandler?: () => void;
+};
+
 export default class SongSelectionScene extends Phaser.Scene {
   private selectedSong: string | null = null;
   private selectedMusic: Phaser.Sound.BaseSound | null = null;
@@ -572,7 +585,7 @@ export default class SongSelectionScene extends Phaser.Scene {
       
       const dotSize = Math.max(4, Math.round(5 * (width / 1920)));
       const dotSpacing = getResponsiveSpacing(20, width);
-      let diffX = coverX + coverSize / 2 + titleOffset;
+      const diffX = coverX + coverSize / 2 + titleOffset;
       Object.keys(song.difficulties).forEach((diff, i) => {
         if (song.difficulties[diff as keyof typeof song.difficulties]) {
           const dot = this.add.circle(diffX + (i * dotSpacing), cardY + getResponsiveSpacing(45, height), dotSize, diffColors[diff]);
@@ -864,10 +877,11 @@ export default class SongSelectionScene extends Phaser.Scene {
     // Clear achievements popup
     if (this.achievementsPopup) {
       // Remove handlers
-      const wheelHandler = (this.achievementsPopup as any)?._popupWheelHandler;
-      const dragHandler = (this.achievementsPopup as any)?._popupDragHandler;
-      const dragEndHandler = (this.achievementsPopup as any)?._popupDragEndHandler;
-      
+      const popup = this.achievementsPopup as PopupContainer;
+      const wheelHandler = popup._popupWheelHandler;
+      const dragHandler = popup._popupDragHandler;
+      const dragEndHandler = popup._popupDragEndHandler;
+
       if (wheelHandler) this.input.off('wheel', wheelHandler);
       if (dragHandler) this.input.off('pointermove', dragHandler);
       if (dragEndHandler) this.input.off('pointerup', dragEndHandler);
@@ -907,18 +921,20 @@ export default class SongSelectionScene extends Phaser.Scene {
 
   private updateCardPositions(scrollOffset: number): void {
     const { width, height } = this.scale;
-    if (!this.cardStartY || !this.cardSize) return;
-    
+    const cardStartY = this.cardStartY;
+    const cardSize = this.cardSize;
+    if (!cardStartY || !cardSize) return;
+
     this.songCards.forEach((card, index) => {
-      const baseY = this.cardStartY + (index * this.cardSize.spacing) - scrollOffset;
+      const baseY = cardStartY + index * cardSize.spacing - scrollOffset;
       const cardY = baseY;
-      
+
       // Update all card element positions
       if (card.background) {
         card.background.setY(cardY);
       }
       if (card.border && card.borderProps) {
-        const newY = cardY - this.cardSize.height / 2;
+        const newY = cardY - cardSize.height / 2;
         card.borderProps.y = newY;
         // Redraw border at new position
         card.border.clear();
@@ -1312,9 +1328,9 @@ export default class SongSelectionScene extends Phaser.Scene {
       this.input.on('pointerup', popupDragEndHandler);
       
       // Store handlers for cleanup
-      (popupContainer as any)._popupWheelHandler = popupWheelHandler;
-      (popupContainer as any)._popupDragHandler = popupDragHandler;
-      (popupContainer as any)._popupDragEndHandler = popupDragEndHandler;
+      (popupContainer as PopupContainer)._popupWheelHandler = popupWheelHandler;
+      (popupContainer as PopupContainer)._popupDragHandler = popupDragHandler;
+      (popupContainer as PopupContainer)._popupDragEndHandler = popupDragEndHandler;
       
       // Add scrollbar to popup container
       popupContainer.add([popupScrollbarBg, popupScrollbarHandle]);
@@ -1337,9 +1353,10 @@ export default class SongSelectionScene extends Phaser.Scene {
     if (!this.achievementsPopup) return;
     
     // Remove popup-specific handlers if they exist
-    const wheelHandler = (this.achievementsPopup as any)._popupWheelHandler;
-    const dragHandler = (this.achievementsPopup as any)._popupDragHandler;
-    const dragEndHandler = (this.achievementsPopup as any)._popupDragEndHandler;
+    const popup = this.achievementsPopup as PopupContainer;
+    const wheelHandler = popup._popupWheelHandler;
+    const dragHandler = popup._popupDragHandler;
+    const dragEndHandler = popup._popupDragEndHandler;
     
     if (wheelHandler) {
       this.input.off('wheel', wheelHandler);

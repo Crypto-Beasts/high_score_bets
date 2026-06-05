@@ -4,7 +4,8 @@ import GameScene from "./GameScene";
 import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
 import { OpponentReplaySystem } from "./OpponentReplaySystem";
 import { DifficultyLevel } from "../../utils/game/difficultyManager";
-import { GameRoomState } from "../../types/GameRoomState";
+import { GameRoomState, PlayerSchema } from "../../types/GameRoomState";
+import { TimedSound } from "../../utils/audio/audioSync";
 
 interface MultiplayerGameData {
   roomId?: string;
@@ -162,9 +163,8 @@ export default class MultiplayerGameScene extends GameScene {
     // Override GameUpdateHandler's onGameEnd callback to prevent single-player debrief transition
     // MultiplayerGameScene handles game end itself via handleGameEnd -> transitionToDebrief
     if (this.gameUpdateHandler) {
-      // Store reference to original callback (if we need it)
-      // But set to undefined so GameUpdateHandler doesn't trigger single-player debrief
-      (this.gameUpdateHandler as any).onGameEnd = undefined;
+      // Set to undefined so GameUpdateHandler doesn't trigger single-player debrief
+      this.gameUpdateHandler.clearOnGameEnd();
     }
     
     // Setup multiplayer UI after parent create (so we can hide parent's score text)
@@ -491,10 +491,9 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Listen for changes to players map
     // When players are added, update opponent display
-    // Cast to any to access MapSchema methods (onAdd, onChange, forEach)
-    const playersMap = this.room.state.players as any;
+    const playersMap = this.room.state.players;
     if (playersMap.onAdd) {
-      playersMap.onAdd((player: any, sessionId: string) => {
+      playersMap.onAdd((player: PlayerSchema, sessionId: string) => {
         console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
         // Initial update for new players
         if (player.sessionId !== this.room?.sessionId) {
@@ -535,7 +534,7 @@ export default class MultiplayerGameScene extends GameScene {
     }
   }
   
-  protected getOpponentFromState(state: GameRoomState): GameRoomState["players"][string] | null {
+  protected getOpponentFromState(state: GameRoomState): PlayerSchema | null {
     if (!this.room) return null;
     
     const mySessionId = this.room.sessionId;
@@ -975,7 +974,7 @@ export default class MultiplayerGameScene extends GameScene {
     if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
       this.opponentReplay.spawnOpponentNote({
         key: key,
-        time: this.music ? ((this.music as any).currentTime || 0) : 0,
+        time: this.music ? ((this.music as TimedSound).currentTime || 0) : 0,
         isHold: isHoldNote,
         duration: duration
       });
@@ -1018,7 +1017,7 @@ export default class MultiplayerGameScene extends GameScene {
       if (['W', 'A', 'S', 'D'].includes(keyPressed)) {
         // Throttle input updates (every 50ms)
         if (!this.lastInputUpdate || (Date.now() - this.lastInputUpdate) > 50) {
-          const currentTime = this.music ? ((this.music as any).currentTime || 0) : 0;
+          const currentTime = this.music ? ((this.music as TimedSound).currentTime || 0) : 0;
           
           this.room.send('playerInput', {
             key: keyPressed,
@@ -1047,11 +1046,9 @@ export default class MultiplayerGameScene extends GameScene {
         
         if (shouldCheck) {
           // Get all players from state
-          // Cast to any to access MapSchema.values() method
-          const playersMap = this.room.state.players as any;
-          const allPlayers = playersMap.values ? Array.from(playersMap.values()) as any[] : Object.values(this.room.state.players);
+          const allPlayers = Array.from(this.room.state.players.values());
           const mySessionId = this.room.sessionId;
-          const opponent = allPlayers.find((p: any) => p.sessionId !== mySessionId);
+          const opponent = allPlayers.find((p) => p.sessionId !== mySessionId);
           
           if (opponent) {
             const newScore = (opponent.score || 0) as number;
@@ -1324,7 +1321,7 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Helper function to safely set font size on text objects
     const safeSetFontSize = (text: Phaser.GameObjects.Text | null | undefined, fontSize: number | string): void => {
-      if (text && text.active && text.scene && (text as any).texture) {
+      if (text && text.active && text.scene && "texture" in text) {
         try {
           // Ensure fontSize is a number
           const size = typeof fontSize === 'string' ? parseFloat(fontSize) : fontSize;

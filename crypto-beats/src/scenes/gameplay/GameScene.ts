@@ -241,7 +241,10 @@ export default class GameScene extends Phaser.Scene {
 
     // Get song-specific JSON data from cache
     const songDataKey = songId + "_data";
-    let originalSongData = null;
+    let originalSongData: {
+      notes?: unknown[];
+      metadata?: { bpm?: number; [key: string]: unknown };
+    } | null = null;
     
     // Check if JSON exists in cache
     if (!jsonExists(this, songDataKey)) {
@@ -265,7 +268,7 @@ export default class GameScene extends Phaser.Scene {
     const validation = validateSongData(originalSongData, songId);
     
     if (!validation.valid) {
-      logError("GameScene", validation.error);
+      logError("GameScene", validation.error ?? "Unknown validation error");
       showError(this, `Invalid song data for ${song.name}:\n${validation.error}`, () => {
         this.scene.start("SongSelectionScene");
       });
@@ -482,7 +485,7 @@ export default class GameScene extends Phaser.Scene {
     this.keyGlows = {}; // Store glow effects for each key
     const keyVisualSize = layout.keySize; // Use consistent key size from layout
     const keyVisualY = height - getResponsiveSpacing(50, height);
-    for (let key in this.keyLanes) {
+    for (const key in this.keyLanes) {
       const keyVisual = this.add.image(this.keyLanes[key].x, keyVisualY, this.keyLanes[key].sprite);
       keyVisual.setDisplaySize(keyVisualSize, keyVisualSize);
       keyVisual.setOrigin(0.5, 0.5);
@@ -665,11 +668,11 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // Keyboard input
-    this.input.keyboard.on("keydown", this.handlePlayerInput, this);
-    this.input.keyboard.on("keyup", this.handleKeyRelease, this);
-    
+    this.input.keyboard?.on("keydown", this.handlePlayerInput, this);
+    this.input.keyboard?.on("keyup", this.handleKeyRelease, this);
+
     // Keyboard shortcut: Esc to pause/resume
-    this.input.keyboard.on('keydown-ESC', () => {
+    this.input.keyboard?.on('keydown-ESC', () => {
       if (this.pauseMenuManager?.isPaused) {
         this.resumeGame();
       } else {
