@@ -4,7 +4,8 @@ import GameScene from "./GameScene";
 import { getResponsiveFontSize, getResponsiveSpacing } from "../../utils/ui/responsive";
 import { OpponentReplaySystem } from "./OpponentReplaySystem";
 import { DifficultyLevel } from "../../utils/game/difficultyManager";
-import { GameRoomState } from "../../types/GameRoomState";
+import { GameRoomState, PlayerSchema } from "../../types/GameRoomState";
+import { TimedSound } from "../../utils/audio/audioSync";
 
 interface MultiplayerGameData {
   roomId?: string;
@@ -162,9 +163,8 @@ export default class MultiplayerGameScene extends GameScene {
     // Override GameUpdateHandler's onGameEnd callback to prevent single-player debrief transition
     // MultiplayerGameScene handles game end itself via handleGameEnd -> transitionToDebrief
     if (this.gameUpdateHandler) {
-      // Store reference to original callback (if we need it)
-      // But set to undefined so GameUpdateHandler doesn't trigger single-player debrief
-      (this.gameUpdateHandler as any).onGameEnd = undefined;
+      // Set to undefined so GameUpdateHandler doesn't trigger single-player debrief
+      this.gameUpdateHandler.clearOnGameEnd();
     }
     
     // Setup multiplayer UI after parent create (so we can hide parent's score text)
@@ -491,43 +491,50 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Listen for changes to players map
     // When players are added, update opponent display
-    this.room.state.players.onAdd((player, sessionId) => {
-      console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
-      // Initial update for new players
-      if (player.sessionId !== this.room?.sessionId) {
-        this.opponentScore = player.score || 0;
-        this.opponentCombo = player.combo || 0;
-        this.updateMultiplayerScores();
-      }
-    });
+    const playersMap = this.room.state.players;
+    if (playersMap.onAdd) {
+      playersMap.onAdd((player: PlayerSchema, sessionId: string) => {
+        console.log(`[MultiplayerGameScene] Player added to state: ${sessionId}`);
+        // Initial update for new players
+        if (player.sessionId !== this.room?.sessionId) {
+          this.opponentScore = player.score || 0;
+          this.opponentCombo = player.combo || 0;
+          this.updateMultiplayerScores();
+        }
+      });
+    }
     
     // Listen for changes to players in the map (fires when player data changes)
     // Note: onChange on MapSchema fires when items are modified, but may not fire for nested field changes
-    this.room.state.players.onChange((player, sessionId) => {
-      console.log(`[MultiplayerGameScene] Player changed in map: ${sessionId}, score=${player.score}, combo=${player.combo}`);
-      if (player.sessionId !== this.room?.sessionId) {
-        const newScore = player.score || 0;
-        const newCombo = player.combo || 0;
-        if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
-          console.log(`[MultiplayerGameScene] onChange: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
-          this.opponentScore = newScore;
-          this.opponentCombo = newCombo;
-          this.updateMultiplayerScores();
+    if (playersMap.onChange) {
+      playersMap.onChange((player: any, sessionId: string) => {
+        console.log(`[MultiplayerGameScene] Player changed in map: ${sessionId}, score=${player.score}, combo=${player.combo}`);
+        if (player.sessionId !== this.room?.sessionId) {
+          const newScore = player.score || 0;
+          const newCombo = player.combo || 0;
+          if (newScore !== this.opponentScore || newCombo !== this.opponentCombo) {
+            console.log(`[MultiplayerGameScene] onChange: opponent score=${newScore} (was ${this.opponentScore}), combo=${newCombo} (was ${this.opponentCombo})`);
+            this.opponentScore = newScore;
+            this.opponentCombo = newCombo;
+            this.updateMultiplayerScores();
+          }
         }
-      }
-    });
+      });
+    }
     
     // Also check existing players on setup
-    this.room.state.players.forEach((player, sessionId) => {
-      if (player.sessionId !== this.room?.sessionId) {
-        this.opponentScore = player.score || 0;
-        this.opponentCombo = player.combo || 0;
-        this.updateMultiplayerScores();
-      }
-    });
+    if (playersMap.forEach) {
+      playersMap.forEach((player: any, sessionId: string) => {
+        if (player.sessionId !== this.room?.sessionId) {
+          this.opponentScore = player.score || 0;
+          this.opponentCombo = player.combo || 0;
+          this.updateMultiplayerScores();
+        }
+      });
+    }
   }
   
-  protected getOpponentFromState(state: GameRoomState): GameRoomState["players"][string] | null {
+  protected getOpponentFromState(state: GameRoomState): PlayerSchema | null {
     if (!this.room) return null;
     
     const mySessionId = this.room.sessionId;
@@ -967,7 +974,7 @@ export default class MultiplayerGameScene extends GameScene {
     if (this.showSpectatorView && this.opponentReplay && this.synchronizedStart) {
       this.opponentReplay.spawnOpponentNote({
         key: key,
-        time: this.music ? ((this.music as any).currentTime || 0) : 0,
+        time: this.music ? ((this.music as TimedSound).currentTime || 0) : 0,
         isHold: isHoldNote,
         duration: duration
       });
@@ -1010,7 +1017,7 @@ export default class MultiplayerGameScene extends GameScene {
       if (['W', 'A', 'S', 'D'].includes(keyPressed)) {
         // Throttle input updates (every 50ms)
         if (!this.lastInputUpdate || (Date.now() - this.lastInputUpdate) > 50) {
-          const currentTime = this.music ? ((this.music as any).currentTime || 0) : 0;
+          const currentTime = this.music ? ((this.music as TimedSound).currentTime || 0) : 0;
           
           this.room.send('playerInput', {
             key: keyPressed,
@@ -1039,9 +1046,9 @@ export default class MultiplayerGameScene extends GameScene {
         
         if (shouldCheck) {
           // Get all players from state
-          const allPlayers = Array.from(this.room.state.players.values()) as any[];
+          const allPlayers = Array.from(this.room.state.players.values());
           const mySessionId = this.room.sessionId;
-          const opponent = allPlayers.find((p: any) => p.sessionId !== mySessionId);
+          const opponent = allPlayers.find((p) => p.sessionId !== mySessionId);
           
           if (opponent) {
             const newScore = (opponent.score || 0) as number;
@@ -1314,7 +1321,7 @@ export default class MultiplayerGameScene extends GameScene {
     
     // Helper function to safely set font size on text objects
     const safeSetFontSize = (text: Phaser.GameObjects.Text | null | undefined, fontSize: number | string): void => {
-      if (text && text.active && text.scene && (text as any).texture) {
+      if (text && text.active && text.scene && "texture" in text) {
         try {
           // Ensure fontSize is a number
           const size = typeof fontSize === 'string' ? parseFloat(fontSize) : fontSize;

@@ -17,6 +17,11 @@ import AchievementsScene from "./scenes/settings/AchievementsScene";
 // UI scenes
 import UIOverlayScene from "./scenes/ui/UIOverlayScene";
 
+// Scenes may optionally implement handleResize to reflow their layout on window resize.
+type ResizableScene = Phaser.Scene & {
+  handleResize?: (size: { width: number; height: number }) => void;
+};
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container', // Attach to container
@@ -56,15 +61,15 @@ window.addEventListener('resize', () => {
         } catch (e) {
           return false;
         }
-      });
-      
-      if (activeScene && typeof (activeScene as any).handleResize === 'function') {
+      }) as ResizableScene | undefined;
+
+      if (activeScene && typeof activeScene.handleResize === "function") {
         // Additional safety check: ensure scene has required properties
-        if ((activeScene as any).cameras && (activeScene as any).scale) {
+        if (activeScene.cameras && activeScene.scale) {
           try {
-            (activeScene as any).handleResize({ width: newWidth, height: newHeight });
+            activeScene.handleResize({ width: newWidth, height: newHeight });
           } catch (error) {
-            console.warn(`[Resize] Error in ${(activeScene as any).scene?.key || 'unknown'} handleResize:`, error);
+            console.warn(`[Resize] Error in ${activeScene.scene?.key || "unknown"} handleResize:`, error);
           }
         }
       }

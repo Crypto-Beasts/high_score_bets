@@ -431,8 +431,11 @@ export default class MultiplayerLobbyScene extends Phaser.Scene {
     }
     
     // Helper function to safely set font size on text objects
-    const safeSetFontSize = (text: Phaser.GameObjects.Text | null | undefined, fontSize: number): void => {
-      if (text && text.active && text.scene && (text as any).texture) {
+    const safeSetFontSize = (
+      text: Phaser.GameObjects.Text | null | undefined,
+      fontSize: number | string
+    ): void => {
+      if (text && text.active && text.scene && "texture" in text) {
         try {
           text.setFontSize(fontSize);
         } catch (error) {

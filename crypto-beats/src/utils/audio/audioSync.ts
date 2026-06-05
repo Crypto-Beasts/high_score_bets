@@ -73,16 +73,23 @@ export function resetAudioOffset(): void {
  * @param audioOffset - User-calibrated audio offset in milliseconds
  * @returns Accurate game time in seconds
  */
+// WebAudio/HTML5 sounds expose extra fields not present on the BaseSound type.
+export type TimedSound = Phaser.Sound.BaseSound & {
+  currentTime?: number;
+  isDecoded?: boolean;
+};
+
 export function getAccurateGameTime(
-  audio: Phaser.Sound.BaseSound | null,
+  audio: Phaser.Sound.BaseSound | null | undefined,
   currentSceneTime: number,
   audioStartTime: number,
   audioOffset: number = 0
 ): number {
   // Try to use audio.currentTime for most accurate timing
-  if (audio && audio.isPlaying && typeof (audio as any).currentTime === 'number' && (audio as any).currentTime > 0) {
+  const timed = audio as TimedSound | null | undefined;
+  if (timed && timed.isPlaying && typeof timed.currentTime === "number" && timed.currentTime > 0) {
     // Use audio's internal time, adjusted for offset
-    return (audio as any).currentTime + (audioOffset / 1000);
+    return timed.currentTime + audioOffset / 1000;
   }
   
   // Fallback to scene time calculation using Date.now() for consistency
@@ -97,11 +104,11 @@ export function getAccurateGameTime(
  * @param audio - Phaser audio object
  * @returns True if audio is ready
  */
-export function isAudioReady(audio: Phaser.Sound.BaseSound | null): boolean {
+export function isAudioReady(audio: Phaser.Sound.BaseSound | null | undefined): boolean {
   if (!audio) return false;
-  
+
   // Check if audio is loaded
-  if (!audio.key || !(audio as any).isDecoded) {
+  if (!audio.key || !(audio as TimedSound).isDecoded) {
     return false;
   }
   
@@ -121,7 +128,7 @@ export function isAudioReady(audio: Phaser.Sound.BaseSound | null): boolean {
  * @returns Promise that resolves to true if audio is ready, false if timeout
  */
 export function waitForAudioReady(
-  audio: Phaser.Sound.BaseSound | null,
+  audio: Phaser.Sound.BaseSound | null | undefined,
   scene: Phaser.Scene,
   timeout: number = 5000
 ): Promise<boolean> {

@@ -1,68 +1,34 @@
-# High Score Bets — Crypto Beats
+# High Score Bets
 
-A blockchain-powered rhythm game where players compete for real SOL prizes. Hit notes in sync with music, climb the weekly leaderboard, and earn a share of the prize pool.
+A rhythm game with an on-chain high-score leaderboard. The repo has two parts:
 
-## How It Works
+- **[`crypto-beats/`](crypto-beats/)** — the game: a 4-lane rhythm game built with Phaser 3 + TypeScript, with real-time multiplayer via Colyseus. **Start here** — see the [game README](crypto-beats/README.md) to play.
+- **[`programs/high_score_bets/`](programs/high_score_bets/)** — a [Solana](https://solana.com/) [Anchor](https://www.anchor-lang.com/) program for an on-chain leaderboard, score submission, and a reward pot.
 
-1. Players pay an entry fee to submit scores to the Solana smart contract
-2. Scores are ranked on a weekly leaderboard (top 10)
-3. At the end of each week, the prize pool is distributed automatically:
-   - 1st place — 50%
-   - 2nd place — 30%
-   - 3rd place — 20%
+## Status
 
-## Gameplay
+⚠️ **The on-chain program is a prototype (devnet only).** It is not audited and is not safe to use with real funds — scores are not verified on-chain, and several instructions lack authority checks. See the game first; the contract is a work in progress.
 
-- Press **W / A / S / D** to hit falling notes in sync with the music
-- Track your score, streak, and accuracy in real time
-- Multiple songs available (converted from MIDI)
-- Single-player and multiplayer modes (via Colyseus)
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Game Frontend | Phaser 3, TypeScript, Vite |
-| Audio | Howler.js |
-| Multiplayer | Colyseus (Node.js) |
-| Blockchain | Solana, Anchor Framework (Rust) |
-| Song Tooling | Python (MIDI → JSON converter) |
-
-## Project Structure
-
-```
-crypto-beats/          # Frontend game (Phaser + TypeScript)
-  src/                 # Game scenes: menu, gameplay, debrief, settings
-  server/              # Colyseus multiplayer server
-  public/              # Songs, images, sounds
-scripts/               # MIDI to JSON conversion utility
-programs/
-  high_score_bets/     # Solana smart contract (Rust/Anchor)
-tests/                 # Smart contract test suite
-```
-
-## Getting Started
+## Quick start (game)
 
 ```bash
-# Install dependencies
-yarn install
+cd crypto-beats
+npm install
+npm run dev
+```
 
-# Start the game (dev)
-cd crypto-beats && yarn dev
+Full instructions — including multiplayer — are in [`crypto-beats/README.md`](crypto-beats/README.md).
 
-# Convert a MIDI file to game note data
-yarn midi-convert
+## The Anchor program
 
-# Run smart contract tests
+```bash
+# Requires the Solana CLI + Anchor toolchain
+anchor build
 anchor test
 ```
 
-## Smart Contract
+Program ID (localnet): `2r9LfxQ588QkQUgSfqojY5k2pJptHdhys3y7nC92hwUP`
 
-The on-chain program manages:
-- Weekly leaderboard with top 10 rankings
-- Automatic prize distribution to top 3 players
-- Role-based access (admin / player)
-- Weekly reset after payout
+## License
 
-Built with [Anchor](https://www.anchor-lang.com/) on Solana.
+MIT — see [LICENSE](LICENSE).
